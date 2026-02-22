@@ -1,0 +1,156 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Driver · ATL Driver Scheduler</title>
+<link rel="stylesheet" href="/styles/tokens.css">
+<style>
+  .count-pill{display:inline-block;background:#0ea5e9;color:#fff;border-radius:999px;padding:2px 8px;font-weight:700}
+  .day.disabled{opacity:.5;pointer-events:none}
+  .chosen-item{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .icon-btn{cursor:pointer;border:1px solid #e2e8f0;background:#fff;border-radius:6px;padding:2px 6px}
+</style>
+</head><body>
+<div style="background:#16a34a;color:#fff;padding:8px 12px;font-weight:700">
+  DEBUG DRIVER BUILD 2025-11-04 11:29:47 — upgraded
+</div>
+<header>
+  <strong>ATL Driver Scheduler</strong>
+  <div>
+    <span id="userEmail" class="muted"></span>
+    <button id="logoutBtn" class="btn secondary" style="margin-left:10px;">Log out</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div class="card" style="flex:1 1 720px;min-width:320px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button id="prev" class="btn secondary">&#8592; Prev</button>
+        <div id="monthLabel" class="muted" style="min-width:220px;text-align:center;font-weight:700"></div>
+        <button id="next" class="btn secondary">Next &#8594;</button>
+        <div style="flex:1"></div>
+        <button id="clearSel" class="btn secondary">Clear selections</button>
+        <button id="reset" class="btn secondary">Reset Month</button>
+      </div>
+      <div id="cal" class="cal"></div>
+    </div>
+    <div class="card" style="flex:0 0 340px">
+      <h3 style="margin:0 0 8px 0">Selected Dates <span id="selCount" class="count-pill">0</span></h3>
+      <ul id="chosen" class="muted" style="padding-left:18px"></ul>
+      <button id="submit" class="btn">Submit</button>
+      <div id="submitMsg" class="muted" style="margin-top:8px"></div>
+      <div id="roleSlot" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  console.log("[driver] script start");
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+  // Re-init cleanly
+  try { if(getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+  const auth = getAuth(app);
+  await setPersistence(auth, browserLocalPersistence);
+
+  // Elements
+  const emailEl   = document.getElementById('userEmail');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const cal       = document.getElementById('cal');
+  const monthLbl  = document.getElementById('monthLabel');
+  const chosen    = document.getElementById('chosen');
+  const selCount  = document.getElementById('selCount');
+  const submitBtn = document.getElementById('submit');
+  const clearSel  = document.getElementById('clearSel');
+  const submitMsg = document.getElementById('submitMsg');
+  const roleSlot  = document.getElementById('roleSlot');
+
+  // State
+  let view = new Date(); view.setDate(1);
+  const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+  const DEFAULT_SLOTS = 11;
+  const selected = new Set();
+
+  // Helpers
+  function keyForMonth(d){ const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"); return "slots:" + y + "-" + m; }
+  function loadMonth(d){ const raw=localStorage.getItem(keyForMonth(d)); return raw?JSON.parse(raw):{}; }
+  function saveMonth(d,map){ localStorage.setItem(keyForMonth(d), JSON.stringify(map)); }
+  function daysInMonth(d){ const y=d.getFullYear(),m=d.getMonth(); return new Date(y,m+1,0).getDate(); }
+  function firstWeekday(d){ const t=new Date(d); t.setDate(1); return t.getDay(); }
+  function isPast(y,m,day){ const dt=new Date(y,m,day); dt.setHours(0,0,0,0); return dt < TODAY; }
+
+  function updateSelCount(){ selCount.textContent = String(selected.size); }
+
+  function renderChosen(){
+    chosen.innerHTML="";
+    const arr = Array.from(selected).sort((a,b)=>a-b);
+    for(const d of arr){
+      const li=document.createElement('li');
+      li.className='chosen-item';
+      const left=document.createElement('span'); left.textContent=d;
+      const btn=document.createElement('button'); btn.className='icon-btn'; btn.title='Remove'; btn.textContent='×';
+      btn.addEventListener('click', ()=>{ selected.delete(d); render(); renderChosen(); updateSelCount(); });
+      li.appendChild(left); li.appendChild(btn);
+      chosen.appendChild(li);
+    }
+    updateSelCount();
+  }
+
+  function render(){
+    const y=view.getFullYear(), m=view.getMonth();
+    monthLbl.textContent = view.toLocaleString(undefined,{month:'long',year:'numeric'});
+    const map = loadMonth(view);
+    const total=daysInMonth(view), pad=firstWeekday(view);
+    cal.innerHTML="";
+    const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for(const w of weekdays){ const h=document.createElement('div'); h.className='muted'; h.style.fontWeight='700'; h.style.textAlign='center'; h.textContent=w; cal.appendChild(h); }
+    for(let i=0;i<pad;i++){ const blank=document.createElement('div'); blank.className='day'; blank.style.visibility='hidden'; cal.appendChild(blank); }
+    for(let d=1; d<=total; d++){
+      const cell=document.createElement('div'); cell.className='day';
+      const num=document.createElement('div'); num.style.fontWeight='700'; num.textContent=d;
+      const past = isPast(y,m,d);
+      const rem  = map[d] ?? DEFAULT_SLOTS;
+      const badge=document.createElement('div'); badge.className='badge'+(rem===0?' zero':''); badge.textContent=rem;
+
+      // disable if past or 0 remaining
+      const disabled = past || rem===0;
+      if(disabled){ cell.classList.add('disabled'); }
+
+      if(selected.has(d)) cell.style.outline='3px solid #16a34a';
+      cell.addEventListener('click', ()=>{
+        if(disabled) return;
+        if(selected.has(d)){ selected.delete(d); cell.style.outline=''; }
+        else { selected.add(d); cell.style.outline='3px solid #16a34a'; }
+        renderChosen();
+      });
+      cell.appendChild(num); cell.appendChild(badge); cal.appendChild(cell);
+    }
+  }
+
+  document.getElementById('prev').addEventListener('click',()=>{ view.setMonth(view.getMonth()-1); selected.clear(); render(); renderChosen(); updateSelCount(); });
+  document.getElementById('next').addEventListener('click',()=>{ view.setMonth(view.getMonth()+1); selected.clear(); render(); renderChosen(); updateSelCount(); });
+  document.getElementById('reset').addEventListener('click',()=>{ localStorage.removeItem(keyForMonth(view)); render(); });
+  clearSel.addEventListener('click',()=>{ selected.clear(); renderChosen(); render(); });
+
+  submitBtn.addEventListener('click',()=>{
+    const map=loadMonth(view);
+    for(const d of selected){ const cur=map[d] ?? DEFAULT_SLOTS; if(cur>0) map[d]=cur-1; }
+    saveMonth(view,map);
+    submitMsg.textContent = "Submitted ✓ (demo)";
+    selected.clear(); render(); renderChosen(); updateSelCount();
+  });
+
+  onAuthStateChanged(auth, async (user)=>{
+    if(!user){ window.location.href="/login"; return; }
+    emailEl.textContent = user.email || "";
+    render(); renderChosen(); updateSelCount();
+  });
+
+  logoutBtn.addEventListener('click', async ()=>{
+    try{ await signOut(auth); }catch(e){ console.error(e); }
+    try{ localStorage.clear(); sessionStorage.clear(); }catch(_) {}
+    window.location.href="/login";
+  });
+</script>
+</body></html>

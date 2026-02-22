@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Diagnostics</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; }
+    pre { background:#fafafa; padding:12px; border-radius:8px; overflow:auto; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer; }
+    button:hover { background:#f3f3f3; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Diagnostics</h1>
+    <div class="card">
+      <div class="row">
+        <button id="btnInfo">Show Info</button>
+        <button id="btnRead">Read /schedules</button>
+        <button id="btnWrite">Test write /__diag__</button>
+        <button id="btnSeed">Seed sample schedules</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Output</h2>
+      <pre id="out">Ready…</pre>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initFirebase } from '/firebase-config.js';
+    import {
+      getAuth, onAuthStateChanged, setPersistence, browserLocalPersistence
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import {
+      getFirestore, collection, getDocs, addDoc, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    const out = document.getElementById('out');
+    const app = await initFirebase();
+    const auth = getAuth(app);
+    await setPersistence(auth, browserLocalPersistence);
+
+    const user = await new Promise(resolve => onAuthStateChanged(auth, u => resolve(u), () => resolve(null)));
+    if (!user) {
+      out.textContent = "Not signed in. Go to /login.html first.";
+      throw new Error("Not signed in");
+    }
+
+    const db = getFirestore(app);
+
+    function print(obj, prefix="") {
+      out.textContent = (prefix ? prefix + "\n" : "") + JSON.stringify(obj, null, 2);
+    }
+
+    document.getElementById('btnInfo').onclick = () => {
+      print({ projectId: app.options.projectId, user: user.email || user.uid }, "INFO");
+    };
+
+    document.getElementById('btnRead').onclick = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'schedules'));
+        print({ ok: true, count: snap.size }, "READ /schedules");
+      } catch (e) {
+        print({ ok: false, code: e.code, message: e.message }, "READ ERROR");
+      }
+    };
+
+    document.getElementById('btnWrite').onclick = async () => {
+      try {
+        const res = await addDoc(collection(db, '__diag__'), { ping: true, at: serverTimestamp() });
+        print({ ok: true, id: res.id }, "WRITE /__diag__");
+      } catch (e) {
+        print({ ok: false, code: e.code, message: e.message }, "WRITE ERROR");
+      }
+    };
+
+    document.getElementById('btnSeed').onclick = async () => {
+      try {
+        const col = collection(db, 'schedules');
+        const now = new Date();
+        const samples = [
+          { date: now.toISOString().slice(0,10), driverName: "Alice", start: "08:00", end: "16:00" },
+          { date: now.toISOString().slice(0,10), driverName: "Bob",   start: "09:00", end: "17:00" }
+        ];
+        const wrote = [];
+        for (const s of samples) {
+          const res = await addDoc(col, { ...s, createdAt: serverTimestamp() });
+          wrote.push(res.id);
+        }
+        print({ ok: true, wrote }, "SEED OK (/schedules)");
+      } catch (e) {
+        print({ ok: false, code: e.code, message: e.message }, "SEED ERROR");
+      }
+    };
+  </script>
+</body>
+</html>

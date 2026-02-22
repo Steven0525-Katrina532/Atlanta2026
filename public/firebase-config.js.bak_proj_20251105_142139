@@ -1,0 +1,9 @@
+import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+export async function initFirebase() {
+  try { if (getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  return initializeApp({
+    apiKey: "AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw",
+    authDomain: "atl-driver-scheduler-demo.firebaseapp.com",
+    projectId: "atl-driver-scheduler-demo"
+  });
+}

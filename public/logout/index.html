@@ -1,0 +1,13 @@
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+<!doctype html><meta charset="utf-8"><title>Logging out…</title>
+<meta http-equiv="refresh" content="0; url=/login.html">
+<p>Signing out… If not redirected, click <a href="/login.html">here</a>.</p>
+
+<script type='module'>
+  import { initFirebase } from "/firebase-config.js";
+  const app = await initFirebase();
+</script>

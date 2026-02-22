@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+// SW safety: ensure no cached SW interferes with fresh deploys
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(r => r.unregister()));
+}
+</script>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Firebase Debug</title>
+  <style>
+    body{font:14px/1.4 system-ui,Segoe UI,Arial,sans-serif;margin:24px;background:#f7f7fb}
+    pre{background:#111;color:#e6e6e6;padding:16px;border-radius:10px;overflow:auto}
+    code{color:#9cdcfe}
+    .ok{color:#0a7}
+    .bad{color:#d33}
+  </style>
+</head>
+<body>
+  <h1>Firebase Debug</h1>
+  <p>Host: <code id="host"></code></p>
+  <p>Config file: <code>/config/firebaseConfig.json</code></p>
+  <pre id="log">Running checks…</pre>
+
+  <!-- Firebase compat (what FirebaseUI expects) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+
+  <script>
+  (async () => {
+    const logEl = document.getElementById('log');
+    const log = (...a)=>{ logEl.textContent += "\n" + a.join(" "); };
+    document.getElementById('host').textContent = location.host;
+
+    try {
+      // 1) Fetch config
+      const res = await fetch('/config/firebaseConfig.json?ts=638972569595275914', {cache:'no-store'});
+      const cfgText = await res.text();
+      log('CONFIG status:', res.status);
+      log(cfgText);
+      let cfg;
+      try { cfg = JSON.parse(cfgText); } catch(e) { log('❌ Bad JSON:', e.message); return; }
+
+      // 2) Initialize Firebase
+      try {
+        if (!firebase.apps.length) firebase.initializeApp(cfg);
+        log('✅ Firebase initialized with projectId:', cfg.projectId);
+      } catch(e) {
+        log('❌ initializeApp error:', e.message || e);
+      }
+
+      // 3) Check Identity Toolkit with your apiKey
+      try {
+        const url = 'https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=' + encodeURIComponent(cfg.apiKey);
+        const r = await fetch(url, {mode:'cors'});
+        log('IdentityToolkit status:', r.status);
+        const t = await r.text();
+        log(t.slice(0, 400) + (t.length>400?'...':''));
+      } catch(e) {
+        log('❌ IdentityToolkit fetch failed:', e.message || e);
+      }
+    } catch(e) {
+      log('❌ Fatal:', e.message || e);
+    }
+  })();
+  </script>
+<script type='module'>
+  import { initFirebase } from "/firebase-config.js";
+  const app = await initFirebase();
+</script>
+</body>
+</html>
+
+

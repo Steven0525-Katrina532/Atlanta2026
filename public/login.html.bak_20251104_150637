@@ -1,0 +1,57 @@
+<!doctype html><html lang="en"><head>
+<script>
+// SW safety: ensure no cached SW interferes with fresh deploys
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(r => r.unregister()));
+}
+</script>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Login · ATL Driver Scheduler</title>
+<link rel="stylesheet" href="/styles/tokens.css">
+<style>/*boot-overlay*/ #boot{position:fixed;inset:0;background:#fff;display:flex;align-items:center;justify-content:center;font:600 16px system-ui;color:#64748b;z-index:9999}</style>
+<body>
+<div id="boot">Loading…</div>
+<div style="height:100%;display:flex;align-items:center;justify-content:center">
+  <div class="card" style="width:100%;max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h1>ATL Driver Scheduler</h1>
+      <small class="muted">BUILD: 2025-11-04 10:27:00</small>
+    </div>
+    <p class="muted">Sign in to continue.</p>
+    <form id="login-form" autocomplete="on">
+      <div><input id="email" class="input" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px" type="email" placeholder="email" required></div>
+      <div style="margin-top:8px"><input id="pw" class="input" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px" type="password" placeholder="password" required></div>
+      <div style="margin-top:12px"><button type="submit" class="btn">Sign In</button></div>
+      <div id="err" class="muted" style="margin-top:6px;min-height:1.2em"></div>
+    </form>
+  </div>
+</div>
+<script type='module'>
+ import { initFirebase } from "/firebase-config.js";
+ const app = await initFirebase();
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+  const auth = getAuth(app);
+  document.getElementById("login-form").addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    const email = document.getElementById("email").value.trim();
+    const pw    = document.getElementById("pw").value;
+    const err   = document.getElementById("err"); err.textContent="";
+    try { await signInWithEmailAndPassword(auth, email, pw); window.location.href="/driver"; }
+    catch(e2){ console.error(e2); err.textContent = (e2?.code || "auth/error"); }
+  });
+  async function firstAuthUser(){ return await new Promise((res)=>onAuthStateChanged(auth, u=>res(u), {onlyOnce:true})); }
+const u0 = await firstAuthUser();
+if(u0){
+  // already signed in -> straight to driver, no form flash
+  window.location.href = "/driver";
+} else {
+  // show the form now
+  try{ document.getElementById('boot')?.remove(); }catch(_){}
+  // keep a normal listener to catch successful sign-in (if your script had one)
+  onAuthStateChanged(auth, (u)=>{ if(u){ window.location.href="/driver"; } });
+}</script>
+</body></html>
+
+

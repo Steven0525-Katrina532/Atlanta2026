@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "atlanta-2026-scheduler",
+    "Atlanta2026": "atlanta-2026-scheduler"
+  },
+  "targets": {},
+  "etags": {}
+}

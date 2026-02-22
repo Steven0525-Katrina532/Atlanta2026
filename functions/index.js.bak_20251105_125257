@@ -1,0 +1,110 @@
+﻿/**
+ * Backend “AI”:
+ * - submitPick({ base, dates[] })  => for each date:
+ *     init schedule doc if missing (capacity=11, slotsRemaining=11)
+ *     if slotsRemaining > 0:
+ *        slotsRemaining--, create assignments/{uid}, users/{uid}/picks/{date}
+ * - cancelPick({ base, date })     => reverse: delete assignment+pick, slotsRemaining++
+ */
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
+admin.initializeApp();
+
+const db = admin.firestore();
+
+function ymdCheck(s) {
+  return typeof s === "string" && /^\d{8}$/.test(s);
+}
+
+exports.submitPick = functions.https.onCall(async (data, context) => {
+  const uid = context.auth && context.auth.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated", "Sign in required");
+
+  const base = data?.base || "ATL";
+  const dates = Array.isArray(data?.dates) ? data.dates : [];
+  if (!dates.length) throw new functions.https.HttpsError("invalid-argument", "dates[] required");
+  for (const d of dates) if (!ymdCheck(d)) throw new functions.https.HttpsError("invalid-argument", "Bad date: "+d);
+
+  const email = (context.auth.token && context.auth.token.email) || "";
+
+  // Process dates sequentially to keep logic simple
+  const results = [];
+  for (const ymd of dates) {
+    const schedRef = db.doc(`bases/${base}/schedules/${ymd}`);
+    const assignRef = schedRef.collection("assignments").doc(uid);
+    const pickRef   = db.doc(`users/${uid}/picks/${ymd}`);
+
+    const r = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(schedRef);
+      let capacity = 11;
+      let slots = 11;
+      let locked = false;
+      if (snap.exists) {
+        const d = snap.data() || {};
+        capacity = typeof d.capacity === "number" ? d.capacity : 11;
+        slots    = typeof d.slotsRemaining === "number" ? d.slotsRemaining : capacity;
+        locked   = !!d.locked;
+      } else {
+        // initialize the doc on first use
+        tx.set(schedRef, { capacity: 11, slotsRemaining: 11, locked: false }, { merge: true });
+        capacity = 11; slots = 11; locked = false;
+      }
+
+      if (locked) throw new functions.https.HttpsError("failed-precondition", `Date ${ymd} is locked`);
+      if (slots <= 0) throw new functions.https.HttpsError("resource-exhausted", `No positions left on ${ymd}`);
+
+      // prevent double-submit by same user
+      const a = await tx.get(assignRef);
+      if (a.exists) return { ymd, status: "already-assigned", capacity, slotsRemaining: slots };
+
+      // commit changes
+      tx.set(assignRef, { taken: true, ts: Date.now() }, { merge: true });
+      tx.set(pickRef,   { base, ts: Date.now() }, { merge: true });
+      tx.update(schedRef, { slotsRemaining: slots - 1 });
+
+      return { ymd, status: "ok", capacity, slotsRemaining: slots - 1 };
+    });
+
+    results.push(r);
+  }
+
+  return { ok: true, results };
+});
+
+exports.cancelPick = functions.https.onCall(async (data, context) => {
+  const uid = context.auth && context.auth.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated", "Sign in required");
+
+  const base = data?.base || "ATL";
+  const ymd = data?.date;
+  if (!ymdCheck(ymd)) throw new functions.https.HttpsError("invalid-argument", "date required YYYYMMDD");
+
+  const schedRef = db.doc(`bases/${base}/schedules/${ymd}`);
+  const assignRef = schedRef.collection("assignments").doc(uid);
+  const pickRef   = db.doc(`users/${uid}/picks/${ymd}`);
+
+  const res = await db.runTransaction(async (tx) => {
+    const schedSnap = await tx.get(schedRef);
+    let capacity = 11;
+    let slots = 11;
+    if (schedSnap.exists) {
+      const d = schedSnap.data() || {};
+      capacity = typeof d.capacity === "number" ? d.capacity : 11;
+      slots    = typeof d.slotsRemaining === "number" ? d.slotsRemaining : capacity;
+    } else {
+      // if no schedule doc, nothing to do
+      return { ymd, status: "no-schedule" };
+    }
+
+    const a = await tx.get(assignRef);
+    if (!a.exists) return { ymd, status: "no-assignment", capacity, slotsRemaining: slots };
+
+    tx.delete(assignRef);
+    tx.delete(pickRef);
+    tx.update(schedRef, { slotsRemaining: Math.min(slots + 1, capacity) });
+
+    return { ymd, status: "canceled", capacity, slotsRemaining: Math.min(slots + 1, capacity) };
+  });
+
+  return { ok: true, result: res };
+});

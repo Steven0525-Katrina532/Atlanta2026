@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Driver</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- SW unregister to avoid stale cached pages -->
+  <script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+  }
+  </script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; }
+    .wrap { max-width: 800px; margin: 0 auto; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    #error { color:#a00; margin:8px 0; }
+    .muted { color:#666; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Driver Dashboard</h1>
+    <div id="error"></div>
+    <div class="card">
+      <div id="status" class="muted">Checking your sign-in status…</div>
+    </div>
+    <div class="card">
+      <h2>Schedules</h2>
+      <div id="schedules" class="muted">Loading schedules…</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initFirebase } from '/firebase-config.js';
+    import {
+      getAuth,
+      onAuthStateChanged,
+      setPersistence,
+      browserLocalPersistence
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+    import {
+      getFirestore,
+      collection,
+      onSnapshot
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+    const errBox = document.getElementById('error');
+    const status = document.getElementById('status');
+    const schedDiv = document.getElementById('schedules');
+
+    // Init + ensure session restoration
+    const app  = await initFirebase();
+    const auth = getAuth(app);
+    await setPersistence(auth, browserLocalPersistence);
+
+    // Wait for Firebase to settle (prevents login → driver → bounce loop)
+    const user = await new Promise(resolve =>
+      onAuthStateChanged(auth, u => resolve(u), () => resolve(null))
+    );
+
+    if (!user) {
+      status.textContent = "Not signed in. Redirecting to login…";
+      location.replace('/login.html');
+      throw new Error('Not signed in'); // stop further code
+    }
+
+    status.textContent = `Signed in as ${user.email ?? user.uid}`;
+
+    // Firestore: safe to read now that we're definitely signed in
+    const db  = getFirestore(app);
+
+    // TODO: adjust the collection name to match your database if different
+    const ref = collection(db, 'schedules');
+
+    onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.empty) {
+          schedDiv.textContent = "No schedules found.";
+          return;
+        }
+        // simple render for now
+        const items = [];
+        snap.forEach(doc => {
+          const d = doc.data();
+          items.push(`<div><strong>${doc.id}</strong> — ${JSON.stringify(d)}</div>`);
+        });
+        schedDiv.innerHTML = items.join('');
+      },
+      (err) => {
+        console.error(err);
+        schedDiv.textContent = "";
+        errBox.textContent =
+          (err.code === 'permission-denied')
+            ? 'You are signed in but do not have permission to view this data.'
+            : (err.message || String(err));
+      }
+    );
+  </script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Supervisor Console</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:16px;background:#f7f9fb}
+    .wrap{max-width:1200px;margin:0 auto}
+    .bar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+    .card{background:#fff;border:1px solid #e6e9ef;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    button,input{padding:8px;border:1px solid #cbd5e1;border-radius:10px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #16a34a}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+    .day{background:#fff;border:1px solid #e2e8f0;border-radius:12px;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .day:hover{outline:2px solid #94a3b8;cursor:pointer}
+    .side ul{list-style:disc;padding-left:18px}
+    .muted{color:#64748b}
+    .cmd{display:flex;gap:8px}
+  </style>
+</head>
+<body style="display:none" data-await-auth="1">
+<div class="wrap">
+  <div class="bar card">
+    <div><strong>Supervisor Console</strong> • <span id="who" class="muted">(…)</span></div>
+    <div class="cmd">
+      <input id="cmd" style="min-width:360px" placeholder='e.g., "swap Allen with Louise on 2025-11-12"'/>
+      <button id="runCmd">Run</button>
+      <button id="pdfBtn">PDF</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <label>Service Month <input id="ym" placeholder="YYYY-MM" style="width:120px"/></label>
+    <span style="margin-left:12px">Open until</span>
+    <input type="datetime-local" id="closeAt"/>
+    <button id="openBtn">Open</button>
+    <button id="closeBtn">Close</button>
+    <button id="saveWin">Save Window</button>
+    <span id="winStatus" class="badge" style="margin-left:8px">…</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div id="calendar" class="calendar"></div>
+    </div>
+    <div class="card side">
+      <div><strong id="panelTitle">Day</strong> <span id="panelHint" class="muted"></span></div>
+      <div id="panelBody" class="muted">Select a day…</div>
+      <hr/>
+      <div><strong>Late Requests</strong></div>
+      <ul id="lateList" class="muted"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+
+<script>
+// Early guard: keep page hidden until auth check in module script.
+// (Prevents "flash" of UI for signed-out users.)
+document.addEventListener("DOMContentLoaded", () => {
+  // nothing else; module script will show or redirect
+});
+</script>
+<script type="module">
+  import { initFirebase } from "/firebase-config.js";              // shared config per runbook
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js";
+  import { getFirestore, doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  const app = await initFirebase();                                 // ✅ real config
+  const auth = getAuth(app);
+  const fns  = getFunctions(app);
+  const db   = getFirestore(app);
+
+  const who = document.getElementById('who');
+  const calendar = document.getElementById('calendar');
+  const panelTitle = document.getElementById('panelTitle');
+  const panelHint = document.getElementById('panelHint');
+  const panelBody = document.getElementById('panelBody');
+  const lateList = document.getElementById('lateList');
+
+  const ymEl = document.getElementById('ym');
+  const closeAtEl = document.getElementById('closeAt');
+  const openBtn = document.getElementById('openBtn');
+  const closeBtn = document.getElementById('closeBtn');
+  const saveWin = document.getElementById('saveWin');
+  const winStatus = document.getElementById('winStatus');
+
+  const cmdEl = document.getElementById('cmd');
+  const runCmd = document.getElementById('runCmd');
+  const pdfBtn = document.getElementById('pdfBtn');
+
+  let isOpen = false;
+
+  function el(tag, html){ const e=document.createElement(tag); e.innerHTML=html; return e; }
+  function ymd(d){ return d.toISOString().slice(0,10); }
+
+  onAuthStateChanged(auth, async (user) => {
+  if (!user) { window.location.replace("/login.html"); return; }
+  document.body.style.display = "block";
+    if (!user){ location.replace("/login.html"); return; }
+    who.textContent = user.email || "(unknown)";
+    await refreshWindow();
+    await renderMonth(new Date());
+    await refreshLate();
+  });
+
+  async function refreshWindow(){
+    const s = await getDoc(doc(db, "settings", "window"));
+    if (s.exists()){
+      const data = s.data();
+      isOpen = data.status === "OPEN";
+      winStatus.textContent = isOpen ? "OPEN" : "CLOSED";
+      ymEl.value = data.ym || "";
+      if (data.closeAt?.toDate){
+        closeAtEl.value = new Date(data.closeAt.toDate()).toISOString().slice(0,16);
+      }
+    }
+  }
+
+  async function renderMonth(now){
+    calendar.innerHTML = "";
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(first); start.setDate(1 - ((first.getDay()+6)%7)); // monday-ish start
+    for(let i=0;i<35;i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      const ym = d.toISOString().slice(0,7);
+      const dd = d.toISOString().slice(8,10);
+      // For MVP we show 11; after publish we can read /pub/<ym>/days/<dd> to compute remaining
+      const day = el("div", `<div>${d.getDate()}</div><div class='muted'>11</div>`);
+      day.className = "day";
+      day.onclick = ()=> selectDay(d);
+      calendar.appendChild(day);
+    }
+  }
+
+  async function selectDay(d){
+    const ym = d.toISOString().slice(0,7);
+    const dd = d.toISOString().slice(8,10);
+    panelTitle.textContent = d.toDateString();
+
+    const sw = await getDoc(doc(db,"settings","window"));
+    const open = sw.exists() && sw.data().status === "OPEN";
+    panelHint.textContent = open ? "Applicants (pre-close)" : "Assignments (post-close)";
+
+    if (open){
+      // Applicants: from /applications (MVP: simple read and filter client-side)
+      const qs = await getDocs(collection(db, "applications"));
+      const hits = [];
+      qs.forEach(x=>{
+        const a=x.data(); (a.dates||[]).forEach(date=>{ if (date.startsWith(ym) && date.slice(8,10)===dd) hits.push(a.email || a.uid); });
+      });
+      panelBody.innerHTML = hits.length ? `<ul>${hits.map(e=>`<li>${e}</li>`).join("")}</ul>` : "<em>None yet</em>";
+    } else {
+      // Assignments (post-close or preview): prefer pub, then assignments
+      const pub = await getDoc(doc(db, `pub/${ym}/days/${dd}`));
+      if (pub.exists()) {
+        const pairs = pub.data().pairs||[];
+        panelBody.innerHTML = pairs.length ? `<ul>${pairs.map(p=>`<li>Veh ${p.vehicle||"--"} — ${p.email||p.uid}</li>`).join("")}</ul>` : "<em>None</em>";
+      } else {
+        const asg = await getDoc(doc(db, `assignments/${ym}/days/${dd}`));
+        const pairs = asg.exists() ? (asg.data().pairs||[]) : [];
+        panelBody.innerHTML = pairs.length ? `<ul>${pairs.map(p=>`<li>Veh ${p.vehicle||"--"} — ${p.email||p.uid}</li>`).join("")}</ul>` : "<em>None</em>";
+      }
+    }
+  }
+
+  async function refreshLate(){
+    lateList.innerHTML = "";
+    try{
+      const listLate = httpsCallable(fns, "listLateRequests");
+      const res = await listLate({});
+      const items = (res.data || []);
+      if (!items.length){ lateList.innerHTML = "<li class='muted'>None</li>"; return; }
+      for (const it of items){
+        const li = document.createElement("li");
+        li.textContent = `${it.date} — ${it.email||it.uid||"(driver)"}`;
+        const a = document.createElement("button"); a.textContent = "Approve"; a.onclick = async ()=> { await httpsCallable(fns,"decideLate")({ id: it.id, approve:true }); await refreshLate(); };
+        const d = document.createElement("button"); d.textContent = "Deny";    d.onclick = async ()=> { await httpsCallable(fns,"decideLate")({ id: it.id, approve:false }); await refreshLate(); };
+        li.append(" ", a, " ", d);
+        lateList.appendChild(li);
+      }
+    }catch(e){ lateList.innerHTML = "<li class='muted'>error loading late requests</li>"; console.error(e); }
+  }
+
+  // Window controls
+  openBtn.onclick  = async ()=> { await httpsCallable(fns,"setWindow")({ open:true });  await refreshWindow(); };
+  closeBtn.onclick = async ()=> { await httpsCallable(fns,"setWindow")({ open:false }); await refreshWindow(); };
+  saveWin.onclick  = async ()=> {
+    const payload = {
+      open: isOpen,
+      ym: ymEl.value || null,
+      closeAt: closeAtEl.value ? new Date(closeAtEl.value).toISOString() : null
+    };
+    await httpsCallable(fns,"setWindow")(payload);
+    await refreshWindow();
+  };
+
+  // Command box
+  runCmd.onclick = async ()=>{
+    const t = cmdEl.value.trim(); if (!t) return;
+    const res = await httpsCallable(fns, "supervisorCommand")({ text: t });
+    alert(JSON.stringify(res.data || res, null, 2));
+    await refreshLate();
+  };
+
+  // PDF
+  pdfBtn.onclick = async ()=>{
+    const month = ymEl.value || new Date().toISOString().slice(0,7);
+    const res = await httpsCallable(fns,"exportMonthlyPdf")({ month, range: "month" });
+    if (res.data?.base64) {
+      const a = document.createElement("a");
+      a.href = "data:application/pdf;base64," + res.data.base64;
+      a.download = `ATL_Roster_${month}.pdf`;
+      a.click();
+    } else {
+      alert(JSON.stringify(res.data||res));
+    }
+  };
+</script>
+</body>
+</html>
+

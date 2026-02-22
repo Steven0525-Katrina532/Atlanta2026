@@ -1,0 +1,45 @@
+<!doctype html><meta charset=utf-8><title>Network Check</title>
+<style>body{font:14px system-ui;padding:20px} pre{background:#f8fafc;border:1px solid #e2e8f0;padding:12px;border-radius:8px;white-space:pre-wrap}</style>
+<h1>Firebase Network Check</h1>
+<p>Time: <span id=t></span> • Online: <span id=on></span></p>
+<p>Origin: <code id=o></code></p>
+<pre id=out>Running…</pre>
+<script type=module>
+  const out = document.getElementById('out');
+  document.getElementById('t').textContent = new Date().toLocaleString();
+  document.getElementById('on').textContent = navigator.onLine ? 'yes' : 'no';
+  document.getElementById('o').textContent = location.origin;
+
+  const apiKey = "AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw"; // current working key
+  const tests = [
+    {name:"Load firebase-auth.js", url:"https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js", init:{}},
+    {name:"Auth signInWithPassword (dry-run bad creds expect 400)", 
+     url:https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw,
+     init:{method:"POST", headers:{'Content-Type':'application/json'},
+           body:JSON.stringify({email:"nobody@example.com", password:"bad", returnSecureToken:true})}},
+    {name:"Firestore list (expect 400/403 ok if CORS works)",
+     url:"https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?database=projects/atl-driver-scheduler-demo/databases/(default)&VER=8&RID=1&CVER=22",
+     init:{method:"POST"}}
+  ];
+
+  async function go(){
+    const lines=[];
+    for (const t of tests){
+      try{
+        const r = await fetch(t.url, t.init);
+        const text = await r.text();
+        lines.push(▸ \n  status:  \n  ok: \n  url: \n  sample: \n);
+      }catch(e){
+        lines.push(▸ \n  FAILED to fetch: );
+      }
+    }
+    // Check service workers
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations?.();
+      lines.push(▸ Service workers registered: );
+      if (regs?.length) { for (const r of regs) lines.push(   - ); }
+    }
+    out.textContent = lines.join('\n');
+  }
+  go();
+</script>

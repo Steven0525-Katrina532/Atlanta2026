@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ATL Driver Scheduler — Sign In<!--v=638972574530191200--></title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: linear-gradient(160deg, #0b132b 0%, #1c2541 100%);
+        color: #fff;
+      }
+      .login-box {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 40px;
+        width: 320px;
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.4);
+        text-align: center;
+      }
+      h1 {
+        margin-bottom: 20px;
+        font-size: 1.4rem;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        border: none;
+        border-radius: 6px;
+        background: #fff;
+        color: #000;
+      }
+      button {
+        width: 100%;
+        margin-top: 12px;
+        padding: 10px;
+        border: none;
+        border-radius: 6px;
+        background: #00b4d8;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: #0096c7; }
+      .error { color: #f87171; margin-top: 10px; font-size: 0.9rem; }
+    </style>
+    <script type="module">
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+      import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+      import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+      // === Firebase Config (injected previously) ===
+      const firebaseConfig = {
+        apiKey: "AIza\.\.\.YOUR_NEW_WEB_API_KEY\.\.\.",
+        authDomain: "atl-driver-scheduler-demo.firebaseapp.com",
+        projectId: "atl-driver-scheduler-demo",
+        storageBucket: "atl-driver-scheduler-demo.appspot.com",
+        messagingSenderId: "586233326021",
+        appId: "1:586233326021:web:4e11034eeaaab1ff5ec3ac",
+      };
+
+      // Simple debug area
+      const dbg = (() => {
+        let el = document.getElementById("debug");
+        if (!el) {
+          el = document.createElement("pre");
+          el.id = "debug";
+          el.style.cssText = "margin-top:16px;text-align:left;white-space:pre-wrap;background:#0006;padding:10px;border-radius:8px;font-size:12px";
+          document.querySelector(".login-box")?.appendChild(el);
+        }
+        const log = (...a) => { el.textContent += a.join(" ") + "\n"; };
+        el.textContent = "[auth-debug] ready @v=638972580834528937\n";
+        return { log };
+      })();
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db   = getFirestore(app);
+
+      const form   = document.getElementById("loginForm");
+      const errBox = document.getElementById("errorMsg");
+
+      // Normalize & trim (avoids invisible chars causing wrong-password)
+      const clean = (s) => s?.normalize("NFKC").trim();
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        errBox.textContent = "";
+        const email = clean(form.email.value);
+        const password = clean(form.password.value);
+
+        try {
+          dbg.log("[submit] attempting", email);
+          const cred = await signInWithEmailAndPassword(auth, email, password);
+          const user = cred.user;
+          const ref  = doc(db, "users", user.uid);
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            const role = snap.data().role || "driver";
+            dbg.log("[submit] role", role);
+            if (role === "supervisor")      window.location.href = "/supervisor.html";
+            else if (role === "admin")      window.location.href = "/admin.html";
+            else                            window.location.href = "/driver.html";
+          } else {
+            errBox.textContent = "User profile not found in database.";
+            dbg.log("[submit] no user profile document users/", user.uid);
+          }
+        } catch (err) {
+          // Show *precise* code + message
+          const code = err?.code || "unknown";
+          const msg  = err?.message || String(err);
+          errBox.textContent = msg;
+          dbg.log("[submit][error]", code, msg);
+          // Common hints
+          if (code === "auth/user-not-found") dbg.log("Hint: The email is not in Firebase Auth Users.");
+          if (code === "auth/wrong-password") dbg.log("Hint: User exists; password mismatch.");
+          if (code === "auth/invalid-api-key") dbg.log("Hint: API key restricted/invalid for this domain.");
+          if (code === "auth/blocked-by-android") dbg.log("Hint: Ignore for web; report full code if persists.");
+          if (code === "auth/network-request-failed") dbg.log("Hint: Check adblockers/VPN and referrer restrictions.");
+        }
+      });
+
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) { dbg.log("[auth] no user (signed out)"); return; }
+        try {
+          const ref  = doc(db, "users", user.uid);
+          const snap = await getDoc(ref);
+          const role = snap.exists() ? (snap.data().role || "driver") : "driver";
+          dbg.log("[auth] already signed in; role", role);
+          if (role === "supervisor")      window.location.href = "/supervisor.html";
+          else if (role === "admin")      window.location.href = "/admin.html";
+          else                            window.location.href = "/driver.html";
+        } catch (e) {
+          dbg.log("[auth][error]", e?.code || "", e?.message || String(e));
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div class="login-box">
+      <h1>Sign In<!--v=638972574530191200--> to continue</h1>
+      <form id="loginForm">
+        <input type="email" name="email" placeholder="Email" autocomplete="username" required />
+        <input type="password" name="password" placeholder="Password" autocomplete="current-password" required />
+        <button type="submit">Sign In<!--v=638972574530191200--></button>
+        <div id="errorMsg" class="error"></div>
+      </form>
+    </div>
+  </body>
+</html>
+
+
+
+<!-- cache-bust v=638972585499774506 -->
+
+
+<!-- cache-bust 2025-10-28T14:55:30.8459685-04:00 -->
+
+
+<!-- cache-bust 2025-10-28T15:01:22.5041146-04:00 -->
+
+
+<!-- sdkconfig-bust 2025-10-28T16:28:45.7499724-04:00 -->
+
+

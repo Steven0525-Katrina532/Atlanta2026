@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script><meta charset="utf-8"><title>Debug Auth</title>  <link rel='stylesheet' href='/styles/overrides.css'>
+</head>
+<body>
+<h1>Debug Auth</h1>
+<pre id="out">Running…</pre>
+<script type='module'>
+  import { initFirebase } from "/firebase-config.js";
+  const app = await initFirebase();
+  const out = document.getElementById("out");
+  function log(...a){ console.log(...a); out.textContent += "\\n" + a.map(x=>typeof x==="object"?JSON.stringify(x,null,2):String(x)).join(" "); }
+  window.addEventListener("error", e => log("JS ERROR:", e.message));
+
+  try {
+    const { initFirebase } = await import("/firebase-config.js");
+    const app = await initFirebase();
+    log("OK initFirebase");
+    log("projectId:", app.options.projectId, "authDomain:", app.options.authDomain);
+
+    const { getAuth, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js");
+    const auth = getAuth(app);
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { log("Auth state: signed OUT"); return; }
+      log("Auth state: signed IN as", user.email || "(unknown)");
+      try {
+        const token = await user.getIdTokenResult(true);
+        log("Claims:", token.claims || {});
+      } catch (e) {
+        log("Token err:", e?.message || e);
+      }
+    });
+  } catch (e) {
+    log("FATAL:", e?.message || e);
+  }
+</script>
+</body>
+</html>
+
+

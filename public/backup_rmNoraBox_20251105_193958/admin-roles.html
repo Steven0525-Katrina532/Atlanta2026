@@ -1,0 +1,99 @@
+<!doctype html><html lang='en'><head>
+<script>
+// SW safety: ensure no cached SW interferes with fresh deploys
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(r => r.unregister()));
+}
+</script>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Admin · Roles</title>
+<link rel='stylesheet' href='/styles/tokens.css'>
+
+  <link rel='stylesheet' href='/styles/overrides.css'>
+</head><body>
+<header>
+<script>
+// SW safety: ensure no cached SW interferes with fresh deploys
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(r => r.unregister()));
+}
+</script>
+  <strong>Admin · Roles</strong>
+  <div>
+    <span id='u' class='muted'></span>
+    <button id='back' class='btn secondary' style='margin-left:10px;'>Back</button>
+    <button id='logout' class='btn secondary' style='margin-left:10px;'>Log out</button>
+  </div>
+</header>
+<div class='wrap'>
+  <div class='card'>
+    <h3 style='margin-top:0'>Manage Roles</h3>
+    <p class='muted'>Set a user's role to <code>supervisor</code> or <code>driver</code>. Your (Steve's) role is <code>admin</code>.</p>
+    <div class='form-row' style='margin-top:8px'>
+      <input id='email' class='input' placeholder='user email (e.g., allen.shelley@noratrans.com)' />
+      <select id='role' class='input' style='width:180px'>
+        <option value='supervisor'>supervisor</option>
+        <option value='driver'>driver</option>
+      </select>
+      <button id='save' class='btn'>Save role</button>
+      <span id='msg' class='muted'></span>
+    </div>
+    <div style='margin-top:12px'>
+      <button id='seed' class='btn secondary'>Seed demo supervisors (Allen & Louise)</button>
+    </div>
+  </div>
+</div>
+
+<script type='module'>
+ import { initFirebase } from "/firebase-config.js";
+ const app = await initFirebase();
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  try { if (getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  
+  const auth = getAuth(app); await setPersistence(auth, browserLocalPersistence);
+  const db = getFirestore(app);
+
+  const u = document.getElementById('u');
+  const email = document.getElementById('email');
+  const role  = document.getElementById('role');
+  const msg   = document.getElementById('msg');
+
+  function lc(s){ return (s||'').trim().toLowerCase(); }
+  async function getRole(emailLower){ const r = await getDoc(doc(db,'roles',emailLower)); return r.exists() ? (r.data().role||'driver') : 'driver'; }
+
+  onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href='/login'; return; }
+    const me = lc(user.email);
+    u.textContent = me;
+
+    // Admin check: you are the admin by email; adjust later to Firestore if you prefer
+    const isAdmin = (me === 'steven.hayes@noratrans.com');
+    if (!isAdmin) { location.href = '/driver'; return; }
+  });
+
+  document.getElementById('back').onclick = ()=>location.href='/driver';
+  document.getElementById('logout').onclick = async ()=>{ try{ await signOut(auth);}catch(e){}; location.href='/login'; };
+
+  document.getElementById('save').onclick = async ()=>{
+    msg.textContent = '';
+    const e = lc(email.value);
+    if (!e.includes('@')) { msg.textContent='Enter a valid email'; return; }
+    const r = lc(role.value);
+    await setDoc(doc(db,'roles',e), { role: r });
+    msg.textContent = 'Saved ✓';
+  };
+
+  document.getElementById('seed').onclick = async ()=>{
+    await setDoc(doc(db,'roles','allen.shelley@noratrans.com'), { role:'supervisor' });
+    await setDoc(doc(db,'roles','louise.cook@noratrans.com'),   { role:'supervisor' });
+    await setDoc(doc(db,'roles','louise.cook@nortrans.com'),    { role:'supervisor' }); // safety alias
+    msg.textContent = 'Seeded ✓';
+  };
+</script>
+</body></html>
+
+
+

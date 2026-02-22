@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Who am I</title></head>
+<body>
+  <h1>Auth token claims</h1>
+  <pre id="out">Loading…</pre>
+
+  <script type="module">
+    import { initFirebase } from "/firebase-config.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    initFirebase();
+    const auth = getAuth();
+    const out = document.querySelector("#out");
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        out.textContent = "Not signed in. Go to /login.html first.";
+        return;
+      }
+      const token = await user.getIdTokenResult(true);
+      out.textContent = JSON.stringify({
+        email: user.email,
+        claims: token.claims
+      }, null, 2);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+
+let _app = null;
+export function initFirebase() {
+  if (_app) return _app;
+  const existing = getApps();
+  _app = existing.length ? existing[0] : initializeApp({
+    apiKey: "AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw",
+    authDomain: "atl-driver-scheduler-demo.firebaseapp.com",
+    projectId: "atl-driver-scheduler-demo"
+  });
+  return _app;
+}

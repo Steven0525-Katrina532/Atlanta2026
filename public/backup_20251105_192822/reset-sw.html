@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Reset SW/Cache</title>
+<h1>Reset SW & Cache</h1>
+<pre id="out">Running…</pre>
+<script>
+(async () => {
+  const out = document.getElementById('out'); const log = (...a)=>out.textContent += "\n"+a.join(" ");
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations?.();
+      (regs||[]).forEach(r=>r.unregister());
+      log("SW:", (regs||[]).length, "unregistered");
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      for (const k of keys) { await caches.delete(k); }
+      log("Caches cleared:", (keys||[]).length);
+    }
+    // also purge storage (harmless)
+    try { localStorage.clear(); sessionStorage.clear(); log("Storage cleared"); } catch(_) {}
+    log("Done. Now close/reopen tabs or hit Ctrl+F5.");
+  } catch(e) { log("ERR:", e?.message||e); }
+})();
+</script>

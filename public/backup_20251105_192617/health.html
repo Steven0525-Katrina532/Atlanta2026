@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Health</title></head>
+<body>
+<h1>Health Check</h1>
+<pre id="out">Running…</pre>
+<script type="module">
+  import { initFirebase } from "/firebase-config.js";
+  try {
+    const app = await initFirebase();
+    document.getElementById("out").textContent =
+      "OK\\nprojectId=" + app.options.projectId + "\\nauthDomain=" + app.options.authDomain;
+  } catch (e) {
+    document.getElementById("out").textContent = "ERROR: " + (e && e.message ? e.message : e);
+    console.error(e);
+  }
+</script>
+</body>
+</html>

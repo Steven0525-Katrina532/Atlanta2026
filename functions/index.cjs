@@ -1,0 +1,323 @@
+const functions = require("firebase-functions");
+const { initializeApp, getApps } = require("firebase-admin/app");
+const { getFirestore, FieldValue, Timestamp } = require("firebase-admin/firestore");
+const PDFDocument = require("pdfkit");
+
+if (!getApps().length) { initializeApp(); }
+const db = getFirestore();
+
+/** ROLES */
+async function requireRole(context, role) {
+  const email = context?.auth?.token?.email;
+  if (!email) throw new functions.https.HttpsError("unauthenticated","Sign in required");
+  const snap = await db.doc(`roles/${email}`).get();
+  const roles = snap.exists ? (snap.data().roles || {}) : {};
+  if (!roles[role] && !roles["admin"]) {
+    throw new functions.https.HttpsError("permission-denied","Supervisor/admin only");
+  }
+  return email;
+}
+
+/** Utils */
+function ymFromDateStr(d) { return d.slice(0,7); }       // "YYYY-MM-DD" -> "YYYY-MM"
+function dayFromDateStr(d) { return d.slice(8,10); }     // -> "DD"
+
+/** ================= CORE HELPERS ================= */
+
+async function setWindowCore({ open, closeAt, ym }, actorEmail) {
+  const doc = { status: open ? "OPEN" : "CLOSED", updatedAt: Timestamp.now() };
+  if (closeAt) doc.closeAt = Timestamp.fromDate(new Date(closeAt));
+  if (ym) doc.ym = ym;
+  await db.doc("settings/window").set(doc, { merge: true });
+  await db.collection("audits").add({ type:"setWindow", doc, by: actorEmail, at: FieldValue.serverTimestamp() });
+  return { ok:true };
+}
+
+async function listLateRequestsInternal() {
+  const qs = await db.collection("lateRequests").orderBy("at","desc").limit(200).get();
+  return qs.docs.map(d => {
+    const o = { id: d.id, ...d.data() };
+    Object.keys(o).forEach(k => { if (o[k]?.toDate) o[k] = o[k].toDate().toISOString(); });
+    return o;
+  });
+}
+
+async function decideLateCore({ id, approve }, actorEmail) {
+  const ref = db.doc(`lateRequests/${id}`);
+  const snap = await ref.get();
+  if (!snap.exists) throw new functions.https.HttpsError("not-found","late request not found");
+  const lr = snap.data(); // expects { uid, email, date:YYYY-MM-DD, vehicle? }
+
+  const ymKey = ymFromDateStr(lr.date);
+  const dayKey = dayFromDateStr(lr.date);
+  const aRef = db.doc(`assignments/${ymKey}/days/${dayKey}`);
+
+  await db.runTransaction(async tx => {
+    if (approve) {
+      const aSnap = await tx.get(aRef);
+      const cur = aSnap.exists ? aSnap.data() : { ym: ymKey, day: dayKey, pairs: [] };
+      cur.pairs = cur.pairs || [];
+      if ((cur.pairs.length || 0) >= 11) throw new functions.https.HttpsError("failed-precondition","day at capacity");
+      cur.pairs.push({ uid: lr.uid, email: lr.email, vehicle: lr.vehicle ?? null, source: "late-approve" });
+      tx.set(aRef, cur, { merge: true });
+      tx.delete(ref);
+    } else {
+      tx.update(ref, { state:"denied", decidedAt: FieldValue.serverTimestamp() });
+    }
+  });
+
+  await db.collection("audits").add({ type:"decideLate", id, approve, by: actorEmail, at: FieldValue.serverTimestamp() });
+  return { ok:true };
+}
+
+/** Assignment Engine (capacity 11/day, pair-lock ≤3, fairness, vehicle priority) */
+async function runEngineCore(month, actorEmail) {
+  if (!/^\d{4}-\d{2}$/.test(month)) throw new functions.https.HttpsError("invalid-argument","month must be YYYY-MM");
+
+  const vqs = await db.collection("vehicles").get();
+  const vehicles = vqs.docs.map(d => d.data()).filter(v => v.active !== false && v.hidden !== true).map(v => v.id);
+  const priorityOrder = ["1601","1602","1603","1604","1605","1606","1631","1632","1633","1634","1635"].filter(x => vehicles.includes(x));
+
+  const aqs = await db.collection("applications").where("ym","==",month).get();
+  const apps = aqs.docs.map(d => d.data()); // { uid,email,ym,dates:[] }
+
+  const dayApplicants = {}; // "DD" -> Map(uid -> {uid,email})
+  for (const a of apps) {
+    for (const date of (a.dates||[])) {
+      if (date.startsWith(month)) {
+        const dd = dayFromDateStr(date);
+        if (!dayApplicants[dd]) dayApplicants[dd] = new Map();
+        dayApplicants[dd].set(a.uid, { uid:a.uid, email:a.email });
+      }
+    }
+  }
+
+  const daysSnap = await db.collection(`assignments/${month}/days`).get();
+  const current = {};
+  daysSnap.forEach(s => current[s.id] = s.data().pairs || []);
+
+  const assignedCount = {};
+  Object.entries(current).forEach(([_,pairs]) => pairs.forEach(p => {
+    assignedCount[p.uid] = (assignedCount[p.uid]||0) + 1;
+  }));
+
+  function prevDayStr(month, dd) { const d = new Date(`${month}-${dd}`); d.setDate(d.getDate()-1); return d.toISOString().slice(8,10); }
+  function findPrevVehicleFor(uid, dd) {
+    const pd = prevDayStr(month, dd);
+    const prev = current[pd] || [];
+    const hit = prev.find(p => p.uid === uid && p.vehicle);
+    return hit ? hit.vehicle : null;
+  }
+
+  const start = new Date(`${month}-01T00:00:00`); const end = new Date(start); end.setMonth(end.getMonth()+1);
+
+  for (let d = new Date(start); d < end; d.setDate(d.getDate()+1)) {
+    const dd = d.toISOString().slice(8,10);
+    const want = 11;
+    const applicants = Array.from((dayApplicants[dd]?.values() || []));
+    const existing = current[dd] || [];
+
+    const streakAdds = [];
+    for (const a of applicants) {
+      let streak = 0, probe = dd;
+      for (let i=0;i<2;i++) { probe = prevDayStr(month, probe); const prevPairs = current[probe]||[]; if (prevPairs.some(p => p.uid===a.uid)) streak++; else break; }
+      if (streak > 0 && streak < 3) {
+        const veh = findPrevVehicleFor(a.uid, dd);
+        if (veh) streakAdds.push({ ...a, vehicle: veh, streak });
+      }
+    }
+
+    const takenUids = new Set(existing.map(x=>x.uid));
+    const pairs = [...existing];
+
+    for (const s of streakAdds) {
+      if (pairs.length >= want) break;
+      if (takenUids.has(s.uid)) continue;
+      const veh = s.vehicle || priorityOrder.find(v => !pairs.some(p => p.vehicle===v));
+      pairs.push({ uid:s.uid, email:s.email, vehicle:veh, source:"engine-streak" });
+      takenUids.add(s.uid);
+      assignedCount[s.uid] = (assignedCount[s.uid]||0)+1;
+    }
+
+    const fill = applicants.filter(a => !takenUids.has(a.uid))
+      .sort((a,b) => (assignedCount[a.uid]||0) - (assignedCount[b.uid]||0));
+
+    for (const a of fill) {
+      if (pairs.length >= want) break;
+      const veh = priorityOrder.find(v => !pairs.some(p => p.vehicle===v));
+      pairs.push({ uid:a.uid, email:a.email, vehicle:veh, source:"engine-fair" });
+      takenUids.add(a.uid);
+      assignedCount[a.uid] = (assignedCount[a.uid]||0)+1;
+    }
+
+    const aRef = db.doc(`assignments/${month}/days/${dd}`);
+    await db.runTransaction(async tx => {
+      const curSnap = await tx.get(aRef);
+      const cur = curSnap.exists ? curSnap.data() : { ym: month, day: dd, pairs: [] };
+      cur.ym = month; cur.day = dd; cur.pairs = pairs.slice(0, want);
+      tx.set(aRef, cur, { merge: true });
+    });
+
+    current[dd] = pairs.slice(0, want);
+  }
+
+  await db.collection("audits").add({ type:"runEngine", month, by: actorEmail, at: FieldValue.serverTimestamp() });
+  return { ok:true };
+}
+
+/** PDF (returns base64 for quick download) */
+async function exportPdfCore({ month, range, day, weekStart }, actorEmail) {
+  const doc = new PDFDocument({ size: "LETTER", margin: 36 });
+  const chunks = [];
+  doc.on("data", c => chunks.push(c));
+
+  doc.fontSize(18).text(`ATL Roster ${month} ${range||"month"}`, { align:"center" }).moveDown();
+
+  async function printDay(ym, dd) {
+    const snap = await db.doc(`pub/${ym}/days/${dd}`).get();
+    const data = snap.exists ? snap.data() : null;
+    doc.fontSize(14).text(`${ym}-${dd}`, { underline: true });
+    if (!data || !(data.pairs||[]).length) { doc.fontSize(10).text("No assignments."); doc.moveDown(); return; }
+    for (const p of data.pairs) doc.fontSize(10).text(`Vehicle ${p.vehicle || "--"}  —  ${p.email || p.uid}`);
+    doc.moveDown();
+  }
+
+  if (range === "day" && day) {
+    await printDay(month, String(day).padStart(2,"0"));
+  } else if (range === "week" && weekStart) {
+    let d = new Date(`${month}-${String(weekStart).padStart(2,"0")}T00:00:00`);
+    for (let i=0;i<7;i++) { await printDay(d.toISOString().slice(0,7), d.toISOString().slice(8,10)); d.setDate(d.getDate()+1); }
+  } else {
+    const qs = await db.collection(`pub/${month}/days`).get();
+    const days = qs.docs.map(x=>x.id).sort();
+    for (const dd of days) await printDay(month, dd);
+  }
+
+  doc.end();
+  const buf = await new Promise(res => doc.on("end", () => res(Buffer.concat(chunks))));
+  return { ok:true, base64: buf.toString("base64") };
+}
+
+/** ================= CALLABLES ================= */
+async function setWindowCallable(data, context){ const email = await requireRole(context,"supervisor"); return setWindowCore(data||{}, email); }
+async function listLateRequestsCallable(_, context){ await requireRole(context,"supervisor"); return listLateRequestsInternal(); }
+async function decideLateCallable(data, context){ const email = await requireRole(context,"supervisor"); return decideLateCore(data||{}, email); }
+async function runEngineCallable(data, context){ const email = await requireRole(context,"supervisor"); return runEngineCore(String((data||{}).month||""), email); }
+async function exportMonthlyPdfCallable(data, context){ const email = await requireRole(context,"supervisor"); return exportPdfCore(data||{}, email); }
+
+/** One-time role seed (owner only) */
+async function seedRolesOnceCallable(data, context){
+  const email = context?.auth?.token?.email || "";
+  if (email !== "steven.hayes@noratrans.com") throw new functions.https.HttpsError("permission-denied","owner only");
+  const already = await db.doc("settings/seedRolesOnce").get();
+  if (already.exists) throw new functions.https.HttpsError("failed-precondition","already seeded");
+
+  const roles = {
+    "steven.hayes@noratrans.com": { admin:true, supervisor:true, driver:false, features:{ owner:true } },
+    "louise.cook@noratrans.com":  { supervisor:true, driver:true },
+    "allen.shelley@noratrans.com":{ supervisor:true, driver:true }
+  };
+  const batch = db.batch();
+  Object.entries(roles).forEach(([k,v]) => batch.set(db.doc(`roles/${k}`), { roles:v }, { merge:true }));
+  batch.set(db.doc("settings/seedRolesOnce"), { at: FieldValue.serverTimestamp(), by: email });
+  await batch.commit();
+  return { ok:true };
+}
+
+/** Command Box (basic intents) */
+async function supervisorCommandCallable(data, context){
+  const email = await requireRole(context,"supervisor");
+  const t = String((data||{}).text||"").toLowerCase().trim();
+
+  if (t.startsWith("open window")) {
+    const m = t.match(/until (.+)$/);
+    const closeAt = m ? m[1] : null;
+    return setWindowCore({ open:true, closeAt }, email);
+  }
+  if (t.startsWith("close window")) {
+    return setWindowCore({ open:false }, email);
+  }
+  if (t.startsWith("run engine")) {
+    const m = t.match(/(\d{4}-\d{2})/);
+    if (!m) throw new functions.https.HttpsError("invalid-argument","Specify month YYYY-MM");
+    return runEngineCore(m[1], email);
+  }
+  if (t.startsWith("approve late")) {
+    const m = t.match(/approve late\s+(.+?)\s+for\s+(\d{4}-\d{2}-\d{2})/);
+    const list = await listLateRequestsInternal();
+    let hit = null;
+    if (m) {
+      const who = m[1]; const day = m[2];
+      hit = list.find(x => x.date === day && String(x.email||"").toLowerCase().includes(who));
+    } else { hit = list[0]; }
+    if (!hit) throw new functions.https.HttpsError("not-found","no matching late request");
+    return decideLateCore({ id: hit.id, approve: true }, email);
+  }
+  return { ok:false, note:"unrecognized command (MVP)" };
+}
+
+/** Export callables */
+module.exports = {
+  setWindow: functions.https.onCall(setWindowCallable),
+  listLateRequests: functions.https.onCall(listLateRequestsCallable),
+  decideLate: functions.https.onCall(decideLateCallable),
+  runEngine: functions.https.onCall(runEngineCallable),
+  exportMonthlyPdf: functions.https.onCall(exportMonthlyPdfCallable),
+  seedRolesOnce: functions.https.onCall(seedRolesOnceCallable),
+  supervisorCommand: functions.https.onCall(supervisorCommandCallable),
+};
+/** ========== DRIVER CALLABLES ========== */
+async function applyForDateCallable(data, context){
+  const email = context?.auth?.token?.email, uid = context?.auth?.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated","Sign in required");
+  const date = String((data||{}).date||"");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new functions.https.HttpsError("invalid-argument","date must be YYYY-MM-DD");
+  const win = await db.doc("settings/window").get();
+  const status = win.exists ? (win.data().status || "CLOSED") : "CLOSED";
+  if (status === "OPEN") {
+    // upsert into applications doc keyed by uid+ym
+    const ym = date.slice(0,7);
+    const id = `${uid}_${ym}`;
+    await db.runTransaction(async tx => {
+      const ref = db.doc(`applications/${id}`);
+      const snap = await tx.get(ref);
+      const cur = snap.exists ? snap.data() : { uid, email, ym, dates: [] };
+      if (!cur.dates.includes(date)) cur.dates.push(date);
+      tx.set(ref, cur, { merge: true });
+    });
+  } else {
+    // late request
+    await db.collection("lateRequests").add({
+      uid, email, date, at: Timestamp.now(), state: "pending"
+    });
+  }
+  return { ok:true };
+}
+
+async function recallRequestCallable(data, context){
+  const uid = context?.auth?.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated","Sign in required");
+  const date = String((data||{}).date||"");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new functions.https.HttpsError("invalid-argument","date must be YYYY-MM-DD");
+
+  // 24h before closeAt rule
+  const win = await db.doc("settings/window").get();
+  const closeAt = win.exists && win.data().closeAt ? win.data().closeAt.toDate() : null;
+  if (!closeAt) throw new functions.https.HttpsError("failed-precondition","no closeAt set");
+  const now = new Date(); const ms24h = 24*60*60*1000;
+  if ((closeAt - now) <= ms24h) throw new functions.https.HttpsError("failed-precondition","cannot recall within 24h of close");
+
+  const ym = date.slice(0,7); const id = `${uid}_${ym}`;
+  await db.runTransaction(async tx => {
+    const ref = db.doc(`applications/${id}`); const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const cur = snap.data(); cur.dates = (cur.dates||[]).filter(d => d !== date);
+    tx.set(ref, cur, { merge: true });
+  });
+  return { ok:true };
+}
+
+Object.assign(module.exports, {
+  applyForDate: functions.https.onCall(applyForDateCallable),
+  recallRequest: functions.https.onCall(recallRequestCallable),
+});

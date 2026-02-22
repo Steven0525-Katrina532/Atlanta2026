@@ -1,0 +1,180 @@
+<!doctype html><html lang='en'>
+<head>
+  <meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
+  <title>Supervisor · ATL Driver Scheduler</title>
+  <link rel='stylesheet' href='/styles/tokens.css?v=20251104_135140'>
+  <style>#boot{position:fixed;inset:0;background:#fff;display:flex;align-items:center;justify-content:center;font:600 16px system-ui;color:#64748b;z-index:9999}
+  label{display:block;margin-top:8px;font-weight:600} .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}</style>
+</head>
+<body>
+<div id='boot'>Loading…</div>
+<header>
+  <strong>Supervisor Console</strong>
+  <div>
+    <span id='user' class='muted'></span>
+    <span id='rolePill' class='count-pill' style='margin-left:8px'>role: …</span>
+    <button id='back' class='btn secondary' style='margin-left:10px;'>Back to Driver</button>
+    <button id='logout' class='btn secondary' style='margin-left:10px;'>Log out</button>
+  </div>
+</header>
+
+<div class='wrap'>
+  <div class='card'>
+    <h3 style='margin:0 0 8px'>Window (Eastern Time)</h3>
+    <div class='row'>
+      <label>Open Calendar: <input id='openAt' class='input' type='datetime-local'></label>
+      <label>Close Calendar: <input id='closeAt' class='input' type='datetime-local'></label>
+      <button id='saveWin' class='btn'>Save Window</button>
+      <button id='clearWin' class='btn secondary'>Clear</button>
+      <span id='winMsg' class='muted'></span>
+    </div>
+    <p class='muted' id='winState' style='margin-top:8px'>Loading…</p>
+  </div>
+
+  <div class='card' id='supContent' style='margin-top:12px'>
+    <h3 style='margin-top:0'>Month Overview</h3>
+    <p class='muted'>Remaining slots are computed from driver picks after Submit. (Auto-assign comes next.)</p>
+    <div class='row' style='margin-bottom:8px'>
+      <button id='prev' class='btn secondary'>&#8592; Prev</button>
+      <span id='monthLabel' class='muted' style='font-weight:700'></span>
+      <button id='next' class='btn secondary'>Next &#8594;</button>
+    </div>
+    <div id='tableHost'></div>
+  </div>
+</div>
+
+<script type='module'>
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  try { if (getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+  const auth = getAuth(app); await setPersistence(auth, browserLocalPersistence);
+  const db = getFirestore(app);
+
+  const userEl=document.getElementById('user'); const rolePill=document.getElementById('rolePill');
+  const backBtn=document.getElementById('back'); const outBtn=document.getElementById('logout');
+  const openIn=document.getElementById('openAt'); const closeIn=document.getElementById('closeAt');
+  const saveWin=document.getElementById('saveWin'); const clearWin=document.getElementById('clearWin'); const winMsg=document.getElementById('winMsg'); const winState=document.getElementById('winState');
+  const prevBtn=document.getElementById('prev'); const nextBtn=document.getElementById('next'); const monthLbl=document.getElementById('monthLabel'); const tableHost=document.getElementById('tableHost');
+
+  const DEFAULT_SLOTS=11; const lc=(s)=> (s||'').toLowerCase(); const ym=(d)=> d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  let view=new Date(); view.setDate(1);
+
+  async function getRole(emailLower){
+    const r = await getDoc(doc(db,"roles",emailLower));
+    if (!r.exists()) return "driver";
+    const v=(r.data().role||"driver").toString().toLowerCase();
+    return (v==="admin"||v==="supervisor")? v : "driver";
+  }
+
+  function setMonthLabel(){ monthLbl.textContent = view.toLocaleString(undefined,{month:'long',year:'numeric'}); }
+
+  function toLocalInputValue(dt){
+    // Convert Date -> yyyy-MM-ddTHH:mm for datetime-local (local tz)
+    const pad=(n)=> String(n).padStart(2,"0");
+    return dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate())+"T"+pad(dt.getHours())+":"+pad(dt.getMinutes());
+  }
+
+  function fromLocalInputValue(s){
+    // interpret as local time; store ISO string
+    const dt = new Date(s);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  async function loadWindow(){
+    const snap = await getDoc(doc(db,"settings","window"));
+    if (!snap.exists()){ winState.textContent="Window not set."; openIn.value=""; closeIn.value=""; return; }
+    const d=snap.data();
+    const o = d.openAt ? new Date(d.openAt) : null;
+    const c = d.closeAt? new Date(d.closeAt): null;
+    if (o) openIn.value  = toLocalInputValue(o);
+    if (c) closeIn.value = toLocalInputValue(c);
+
+    const now = new Date();
+    let state = "draft";
+    if (o && now < o) state="scheduled (opens "+o.toLocaleString("en-US",{timeZone:"America/New_York"})+")";
+    if (o && c && now >= o && now <= c) state="open (closes "+c.toLocaleString("en-US",{timeZone:"America/New_York"})+")";
+    if (c && now > c) state="closed";
+    winState.textContent = "State: " + state + " · Month: " + (d.ym||"(unset)");
+  }
+
+  async function saveWindowDoc(o,c){
+    const month = (o ? (o.getMonth()+1) : (new Date().getMonth()+1));
+    const year  = (o ? o.getFullYear() : (new Date().getFullYear()));
+    const winYm = year+"-"+String(month).padStart(2,"0");
+    await setDoc(doc(db,"settings","window"), {
+      openAt: o? o.toISOString(): null,
+      closeAt: c? c.toISOString(): null,
+      status: "scheduled",
+      ym: winYm
+    }, { merge:true });
+  }
+
+  async function loadPicks(){
+    const q = query(collection(db,"picks"), where("ym","==", ym(view)));
+    const snaps = await getDocs(q);
+    const byDay = {}; const namesByDay = {};
+    snaps.forEach(docSnap=>{
+      const d=docSnap.data(); const email=lc(d.email); const dates=d.dates||[];
+      for(const day of dates){
+        byDay[day]=(byDay[day]||0)+1;
+        if(!namesByDay[day]) namesByDay[day]=new Set();
+        namesByDay[day].add(email);
+      }
+    });
+    const totalDays = new Date(view.getFullYear(), view.getMonth()+1, 0).getDate();
+    let html = "<table><thead><tr><th style='width:90px'>Day</th><th style='width:140px'>Remaining</th><th>Selected By</th></tr></thead><tbody>";
+    for(let d=1; d<=totalDays; d++){
+      const used = byDay[d]||0;
+      const rem = Math.max(0, DEFAULT_SLOTS - used);
+      const names = [...(namesByDay[d]||[])].sort().join(", ");
+      html += <tr><td></td><td></td><td></td></tr>;
+    }
+    html += "</tbody></table>";
+    tableHost.innerHTML = html;
+  }
+
+  async function firstAuthUser(){ return await new Promise((res)=>onAuthStateChanged(auth, u=>res(u), {onlyOnce:true})); }
+  const u0 = await firstAuthUser();
+  if(!u0){ location.href="/login"; }
+  else {
+    document.getElementById('boot')?.remove();
+    const me = lc(u0.email);
+    userEl.textContent = me;
+    const role = await getRole(me);
+    rolePill.textContent = "role: " + role;
+
+    if (!(role==="admin"||role==="supervisor")) {
+      // Not a supervisor: bounce back
+      location.href="/driver";
+    }
+
+    await loadWindow();
+    setMonthLabel(); await loadPicks();
+
+    prevBtn.onclick = async ()=>{ view.setMonth(view.getMonth()-1); setMonthLabel(); await loadPicks(); };
+    nextBtn.onclick = async ()=>{ view.setMonth(view.getMonth()+1); setMonthLabel(); await loadPicks(); };
+    backBtn.onclick = ()=> location.href="/driver";
+    outBtn.onclick = async ()=>{ try{ await signOut(auth);}catch(e){}; location.href="/login"; };
+
+    saveWin.onclick = async ()=>{
+      winMsg.textContent="";
+      const o = fromLocalInputValue(openIn.value);
+      const c = fromLocalInputValue(closeIn.value);
+      if (!o || !c) { winMsg.textContent="Enter both open and close."; return; }
+      await saveWindowDoc(o,c);
+      winMsg.textContent="Saved ✓";
+      await loadWindow();
+    };
+
+    clearWin.onclick = async ()=>{
+      await setDoc(doc(db,"settings","window"), { openAt:null, closeAt:null, status:"draft" }, { merge:true });
+      openIn.value=""; closeIn.value=""; winMsg.textContent="Cleared ✓"; await loadWindow();
+    };
+
+    onAuthStateChanged(auth, (u)=>{ if(!u){ location.href="/login"; }});
+  }
+</script>
+</body></html>

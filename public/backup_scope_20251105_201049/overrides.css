@@ -1,0 +1,65 @@
+/* ===== NORA Header Overrides ===== */
+.top-strip, .header-strip, .thin-top-bar { display: none !important; }
+/* Use either #noraBadge or .nora-badge if present */
+#noraBadge, .nora-badge {
+  position: sticky; top: 0; left: 0; right: 0; z-index: 1000;
+  width: 100%; margin: 0 !important; border-radius: 0 !important;
+  display: flex !important; align-items: center; justify-content: center;
+  background: #000 !important; color: #fff !important;
+  box-shadow: 0 2px 0 rgba(0,0,0,.12);
+}
+#noraBadge:not([style*="height"]), .nora-badge:not([style*="height"]) {
+  min-height: 64px; padding-block: 8px;
+}
+main, .page, .content, body > div:not(#noraBadge) { padding-top: 76px; }
+body { background: #1a9a8f; } /* hunter/teal */
+/* (disabled hide NORA) */
+/* Heuristic: any standalone black badge with text NORA but not full-width header */
+.nora-badge-like {
+  display: none !important;
+}
+
+
+/* Make the very first block (the black band) a centered banner with large NORA */
+body > *:first-child{
+  display:flex !important;
+  align-items:center; justify-content:center;
+  background:#000 !important; color:#fff !important;
+  height:64px; margin:0 !important; border-radius:0 !important;
+  box-shadow:0 2px 0 rgba(0,0,0,.12);
+}
+/* Make NORA a little smaller than the band height and center it */
+body > *:first-child,
+body > *:first-child *{
+  font-weight:800 !important;
+  text-transform:uppercase; letter-spacing:.06em;
+  font-size:52px !important;   /* tweak to 48/56 if you want smaller/bigger */
+  line-height:64px !important; /* vertically centers the letters in the band */
+  text-align:center !important;
+}
+/* Hide the small floating NORA badge above the sign-in card */
+#noraBadge, .nora-badge { display:none !important; }
+/* === /NORA banner v5 === */
+
+/* === NORA banner v6 (login header) === */
+/* Full-width black band as the first block; raise band height, center text */
+body > *:first-child{
+  display:flex !important;
+  align-items:center; justify-content:center;
+  background:#000 !important; color:#fff !important;
+  height:96px;                      /* taller band so big text fits */
+  margin:0 !important; border-radius:0 !important;
+  box-shadow:0 2px 0 rgba(0,0,0,.12);
+}
+/* Make NORA roughly 2× larger than before and centered */
+body > *:first-child,
+body > *:first-child *{
+  font-weight:800 !important;
+  text-transform:uppercase; letter-spacing:.06em;
+  font-size:88px !important;        /* adjust to 84/92 if you want */
+  line-height:96px !important;      /* vertically centers in the band */
+  text-align:center !important;
+}
+/* Hide the floating NORA badge above the sign-in card */
+#noraBadge, .nora-badge { display:none !important; }
+/* === /NORA banner v6 === */

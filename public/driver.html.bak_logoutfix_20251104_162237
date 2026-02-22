@@ -1,0 +1,280 @@
+<!doctype html><html lang='en'>
+<head>
+  <meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
+  <title>Driver · ATL Driver Scheduler</title>
+  <link rel='stylesheet' href='/styles/tokens.css?v=20251104_135958'>
+  <style>#boot{position:fixed;inset:0;background:#fff;display:flex;align-items:center;justify-content:center;font:600 16px system-ui;color:#64748b;z-index:9999}</style>
+</head>
+<body>
+<div id='boot'>Loading…</div>
+<header>
+  <strong>ATL Driver Scheduler</strong>
+  <div>
+    <span id='userEmail' class='muted'></span>
+    <button id='roleActionBtn' class='btn secondary' style='margin-left:10px;'>Clear selections</button>
+    <button id='logoutBtn' class='btn secondary' style='margin-left:10px;'>Log out</button>
+  </div>
+</header>
+
+<div class='wrap'>
+  <div class='card' style='margin-bottom:12px'>
+    <div id='windowBanner' class='muted'>Loading window…</div>
+  </div>
+
+  <div style='display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap'>
+    <div class='card' style='flex:1 1 720px;min-width:320px'>
+      <div style='display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap'>
+        <button id='prev' class='btn secondary'>&#8592; Prev</button>
+        <div id='monthLabel' class='muted' style='min-width:220px;text-align:center;font-weight:700'></div>
+        <button id='next' class='btn secondary'>Next &#8594;</button>
+        <div style='flex:1'></div>
+      </div>
+      <div id='cal' class='cal'></div>
+    </div>
+
+    <div class='card' style='flex:0 0 360px'>
+      <h3 style='margin:0 0 8px 0'>Selected Dates <span id='selCount' class='count-pill'>0</span></h3>
+      <ul id='chosen' class='muted' style='padding-left:18px'></ul>
+      <button id='submit' class='btn'>Submit</button>
+      <div id='submitMsg' class='muted' style='margin-top:8px'></div>
+      <div id='roleSlot' class='muted' style='margin-top:12px'></div>
+    </div>
+  </div>
+</div>
+
+<script type='module'>
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  // init
+  try { if (getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+  const auth = getAuth(app); await setPersistence(auth, browserLocalPersistence);
+  const db = getFirestore(app);
+
+  // els
+  const emailEl=document.getElementById('userEmail');
+  const roleBtn=document.getElementById('roleActionBtn');
+  const logoutBtn=document.getElementById('logoutBtn');
+  const cal=document.getElementById('cal'); const monthLbl=document.getElementById('monthLabel');
+  const chosen=document.getElementById('chosen'); const selCount=document.getElementById('selCount');
+  const submitBtn=document.getElementById('submit'); const submitMsg=document.getElementById('submitMsg');
+  const roleSlot=document.getElementById('roleSlot'); const banner=document.getElementById('windowBanner');
+
+  // state
+  let view = new Date(); view.setDate(1);
+  const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+  const DEFAULT_SLOTS = 11;
+  const selected = new Set();
+  let openAt = null, closeAt = null, status = "draft", winYm = null, demoMode = false;
+
+  // helpers
+  const lc=(s)=> (s||"").toLowerCase();
+  const ym=(d)=> d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  function keyForMonth(d){ return "slots:"+ym(d); }
+  function loadMonth(d){ const raw=localStorage.getItem(keyForMonth(d)); return raw?JSON.parse(raw):{}; }
+  function saveMonth(d,map){ localStorage.setItem(keyForMonth(d), JSON.stringify(map)); }
+  function daysInMonth(d){ const y=d.getFullYear(),m=d.getMonth(); return new Date(y,m+1,0).getDate(); }
+  function firstWeekday(d){ const t=new Date(d); t.setDate(1); return t.getDay(); }
+  function isPast(y,m,day){ const dt=new Date(y,m,day); dt.setHours(0,0,0,0); return dt < TODAY; }
+  function isSameYm(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth(); }
+  function nextMonthOf(d){ const n=new Date(d); n.setMonth(n.getMonth()+1); n.setDate(1); return n; }
+  function updateSelCount(){ selCount.textContent = String(selected.size); }
+
+  function bannerText(){
+    if (demoMode) {
+      return "Demo mode: Window not set — current month allows today-forward, next month fully open.";
+    }
+    const now = new Date();
+    if (!openAt || !closeAt) return "Scheduling window not set yet.";
+    if (now < openAt) return "Opens at " + openAt.toLocaleString("en-US",{timeZone:"America/New_York"});
+    if (now >= openAt && now <= closeAt) return "Open until " + closeAt.toLocaleString("en-US",{timeZone:"America/New_York"});
+    return "Window closed — late applications allowed only for days with remaining slots.";
+  }
+
+  // Picking rules
+  function canPickDay(rem, y,m,day){
+    if (rem<=0) return false;
+    const now = new Date();
+    const currentYm = new Date(view.getFullYear(), view.getMonth(), 1);
+
+    if (demoMode){
+      // Current month: allow today and later; Next month: allow any day
+      if (isSameYm(currentYm, new Date(TODAY.getFullYear(), TODAY.getMonth(),1))){
+        // viewing current month
+        return !isPast(y,m,day);
+      }
+      // if viewing next month relative to TODAY
+      const next = nextMonthOf(TODAY);
+      if (isSameYm(currentYm, next)) return true;
+      // other months in demo mode are locked
+      return false;
+    }
+
+    // Normal window logic
+    if (!openAt || !closeAt) return false;
+    if (now < openAt) return false;
+    if (now >= openAt && now <= closeAt) return !isPast(y,m,day);
+    // after close: allow only if not past AND remaining>0
+    return !isPast(y,m,day);
+  }
+
+  function renderChosen(){
+    chosen.innerHTML = "";
+    const arr=[...selected].sort((a,b)=>a-b);
+    for(const d of arr){
+      const li=document.createElement('li'); li.className='chosen-item';
+      const left=document.createElement('span'); left.textContent=d;
+      const btn=document.createElement('button'); btn.className='icon-btn'; btn.title='Remove'; btn.textContent='×';
+      btn.addEventListener('click', ()=>{ selected.delete(d); render(); renderChosen(); updateSelCount(); });
+      li.appendChild(left); li.appendChild(btn); chosen.appendChild(li);
+    }
+    updateSelCount();
+  }
+
+  function render(){
+    banner.textContent = bannerText();
+    const y=view.getFullYear(), m=view.getMonth();
+    monthLbl.textContent = view.toLocaleString(undefined,{month:'long',year:'numeric'});
+    const map = loadMonth(view);
+    const total=daysInMonth(view), pad=firstWeekday(view);
+    cal.innerHTML="";
+    const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for(const w of weekdays){ const h=document.createElement('div'); h.className='muted'; h.style.fontWeight='700'; h.style.textAlign='center'; h.textContent=w; cal.appendChild(h); }
+    for(let i=0;i<pad;i++){ const blank=document.createElement('div'); blank.className='day'; blank.style.visibility='hidden'; cal.appendChild(blank); }
+    for(let d=1; d<=total; d++){
+      const cell=document.createElement('div'); cell.className='day';
+      const num=document.createElement('div'); num.className='num'; num.textContent=d;
+      const rem  = map[d] ?? DEFAULT_SLOTS;
+      const badge=document.createElement('div'); badge.className='badge'+(rem===0?' zero':''); badge.textContent=rem;
+
+      // disable if past OR not allowed by window/demo rule
+      const disabled = isPast(y,m,d) || !canPickDay(rem,y,m,d);
+      if(disabled) cell.classList.add('disabled');
+
+      if(selected.has(d)) cell.style.outline='3px solid #16a34a';
+      cell.addEventListener('click', ()=>{
+        if(disabled) return;
+        if(selected.has(d)){ selected.delete(d); cell.style.outline=''; }
+        else { selected.add(d); cell.style.outline='3px solid #16a34a'; }
+        renderChosen();
+      });
+      cell.appendChild(num); cell.appendChild(badge); cal.appendChild(cell);
+    }
+  }
+
+  function bindClearSelections(){
+    roleBtn.textContent = "Clear selections";
+    roleBtn.onclick = ()=>{ selected.clear(); renderChosen(); render(); };
+  }
+
+  async function getRole(emailLower){
+    const fallbackSups = new Set([
+      "steven.hayes@noratrans.com",
+      "allen.shelley@noratrans.com",
+      "louise.cook@noratrans.com",
+      "louise.cook@nortrans.com"
+    ]);
+    try{
+      const rdoc = await getDoc(doc(db,"roles",emailLower));
+      if (!rdoc.exists()) return fallbackSups.has(emailLower) ? "supervisor" : "driver";
+      const r=(rdoc.data().role||"driver").toString().toLowerCase();
+      return (r==="admin"||r==="supervisor")? r : "driver";
+    }catch(e){
+      console.warn("role lookup failed", e);
+      return fallbackSups.has(emailLower) ? "supervisor" : "driver";
+    }
+  }
+
+  async function loadWindow(){
+    const s = await getDoc(doc(db,"settings","window"));
+    if (!s.exists()){
+      demoMode = true;
+      return;
+    }
+    const d=s.data();
+    openAt = d.openAt ? new Date(d.openAt) : null;
+    closeAt= d.closeAt? new Date(d.closeAt): null;
+    status = d.status || "draft";
+    demoMode = !(openAt && closeAt); // if incomplete, use demo mode
+  }
+
+  async function firstAuthUser(){ return await new Promise((res)=>onAuthStateChanged(auth, u=>res(u), {onlyOnce:true})); }
+  const u0 = await firstAuthUser();
+  if(!u0){ window.location.href="/login"; }
+  else {
+    document.getElementById('boot')?.remove();
+    const email = lc(u0.email); const uid = u0.uid;
+    emailEl.textContent = email;
+
+    await loadWindow();
+
+    // If demo mode, start by showing NEXT month right away (nice for demos)
+    if (demoMode){
+      const next = new Date(); next.setDate(1); next.setMonth(next.getMonth()+1);
+      view = next;
+    }
+
+    const role = await getRole(email);
+    roleSlot.textContent = "role: " + role;
+    if (role === "admin" || role === "supervisor") {
+      roleBtn.textContent = "Supervisor Console";
+      roleBtn.onclick = ()=>{ window.location.href="/supervisor"; };
+    } else {
+      bindClearSelections();
+    }
+
+    document.getElementById('prev').onclick = ()=>{ view.setMonth(view.getMonth()-1); selected.clear(); render(); renderChosen(); updateSelCount(); };
+    document.getElementById('next').onclick = ()=>{ view.setMonth(view.getMonth()+1); selected.clear(); render(); renderChosen(); updateSelCount(); };
+
+    render(); renderChosen(); updateSelCount();
+
+    submitBtn.addEventListener('click', async ()=>{
+      const arr = [...selected].sort((a,b)=>a-b);
+      const payload = { uid, email, ym: ym(view), dates: arr, ts: (new Date()).toISOString() };
+      const id = uid + "_" + ym(view);
+      try{
+        await setDoc(doc(db,"picks", id), payload, { merge: true });
+        submitMsg.textContent = "Submitted ✓";
+        // instant UX: decrement local counts
+        const map=loadMonth(view);
+        for(const d of selected){ const cur=map[d] ?? DEFAULT_SLOTS; if(cur>0) map[d]=cur-1; }
+        saveMonth(view,map);
+        selected.clear(); render(); renderChosen(); updateSelCount();
+      }catch(e){
+        console.error(e);
+        submitMsg.textContent = "Submit failed: " + (e?.message||e);
+      }
+    });
+
+    onAuthStateChanged(auth, (u)=>{ if(!u){ window.location.href="/login"; }});
+  }
+
+  logoutBtn.addEventListener('click', async ()=>{
+    try{ await signOut(auth); }catch(e){}
+    try{ localStorage.clear(); sessionStorage.clear(); }catch(_){}
+    window.location.href="/login";
+  });
+</script>
+<!-- LOGOUT-INJECT -->
+<script type="module">
+  try {
+    const { initFirebase } = await import("/firebase-config.js");
+    const { getAuth, signOut } = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js");
+    const app = await initFirebase();
+    const auth = getAuth(app);
+    const btn = document.getElementById("logoutBtn");
+    if (btn) {
+      btn.addEventListener("click", async () => {
+        try { await signOut(auth); } catch(_) {}
+        try { localStorage.clear(); sessionStorage.clear(); } catch(_) {}
+        location.replace("/login.html");
+      });
+    }
+  } catch (e) {
+    console.error("Logout init failed:", e);
+  }
+</script>
+</body></html>
+

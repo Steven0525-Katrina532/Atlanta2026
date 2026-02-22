@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>LEGACY 29 (Iframe) — Iframe Harness</title>
+  <link rel="stylesheet" href="/styles/tokens.css">
+</head>
+<body>
+  <div class="hdr" style="background:#ef4444">LEGACY 29 (Iframe) — 20251104_110555</div>
+  <div class="wrap">
+    <p style="margin:8px 0">If the old app tries to redirect, the sandbox blocks it. Watch the content inside the frame.</p>
+    <iframe id="leg" style="width:100%;height:80vh;border:1px solid var(--border);border-radius:12px;background:#fff"
+            sandbox="allow-scripts allow-same-origin"></iframe>
+  </div>
+  <script>
+    // Build the iframe document via srcdoc so we control order and sandbox
+    const src = String.raw\
+<!doctype html>
+<html><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<style>
+  body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;margin:0;background:#fff}
+  .wrap{padding:12px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .box{background:#fff;border:1px solid #e2e8f0;border-radius:12px;min-height:120px;padding:12px}
+  .muted{color:#64748b}
+</style>
+</head><body>
+  <div class="wrap">
+    <div class="muted">Inside sandbox · \</div>
+    <div class="grid">
+      <div class="box"><h3 id="h1">#app</h3><div id="app"></div></div>
+      <div class="box"><h3 id="h2">#root</h3><div id="root"></div></div>
+      <div class="box"><h3 id="h3">#mount</h3><div id="mount"></div></div>
+      <div class="box"><h3 id="h4">#container</h3><div id="container"></div></div>
+      <div class="box"><h3 id="h5">.app</h3><div class="app"></div></div>
+      <div class="box"><h3 id="h6">.root</h3><div class="root"></div></div>
+    </div>
+    <pre id="log" style="font-family:monospace;white-space:pre-wrap;margin-top:12px"></pre>
+  </div>
+
+  <script type="module">
+    const logEl = document.getElementById('log');
+    const log = (...a)=>{ console.log(...a); logEl.textContent += a.join(" ")+"\\n"; };
+
+    // Block top navigation inside iframe
+    const _assign = window.location.assign.bind(window.location);
+    const _replace = window.location.replace.bind(window.location);
+    Object.defineProperty(window.location, 'href', { set:(v)=>log('[nav:block] href =', v) });
+    window.location.assign = (v)=>log('[nav:block] assign', v);
+    window.location.replace = (v)=>log('[nav:block] replace', v);
+    const _push = history.pushState.bind(history);
+    const _rep  = history.replaceState.bind(history);
+    history.pushState = (s,t,u)=>log('[nav:block] pushState ->', u);
+    history.replaceState = (s,t,u)=>log('[nav:block] replaceState ->', u);
+
+    // Log selector usage so we see what it expects
+    const _gid = document.getElementById.bind(document);
+    document.getElementById = (id)=>{ log('[dom] getElementById', id); return _gid(id); };
+    const _qs = document.querySelector.bind(document);
+    document.querySelector = (sel)=>{ log('[dom] querySelector', sel); return _qs(sel); };
+
+    // Firebase in the iframe so it shares session (same origin)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+    const auth = getAuth(app);
+
+    onAuthStateChanged(auth, (u)=>{
+      if(!u){ log('[auth] no session — open /login in a separate tab, then refresh this page.'); return; }
+      log('[auth] signed in as', u.email||'(no email)');
+      // Load legacy bundle module
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = "=20251104_110555";
+      document.body.appendChild(s);
+      log('[bundle] appended', s.src);
+    });
+  </script>
+</body></html>\;
+
+    const f = document.getElementById('leg');
+    f.srcdoc = src;
+  </script>
+</body>
+</html>

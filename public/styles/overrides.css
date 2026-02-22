@@ -1,0 +1,36 @@
+/* ===== Login page layout overrides ===== */
+.page-login .nora-top{
+  position: sticky !important;
+  top: 0; left: 0; right: 0;
+  background: #0a0a0a !important; color: #fff !important;
+  height: 128px !important;            /* force the taller stripe */
+  display: flex !important; align-items: center !important;
+  padding: 0 20px !important; z-index: 100 !important;
+}
+.page-login .nora-brand{
+  font-weight: 800 !important; letter-spacing: .06em !important;
+  font-size: 48px !important; line-height: 1 !important;
+}
+
+/* center the card exactly in the remaining viewport below the bar */
+.page-login .page{
+  min-height: calc(100vh - 128px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 16px !important;
+}
+
+/* tidy card; prevent stray margins pushing it */
+.page-login .card{
+  max-width: 420px !important;
+  width: min(420px, 92vw) !important;
+  margin-top: 0 !important;
+}
+
+/* small screens: don’t make the bar huge */
+@media (max-width: 480px){
+  .page-login .nora-top{ height: 90px !important; }
+  .page-login .page{ min-height: calc(100vh - 90px) !important; }
+  .page-login .nora-brand{ font-size: 36px !important; }
+}

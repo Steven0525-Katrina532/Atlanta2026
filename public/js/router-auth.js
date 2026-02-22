@@ -1,0 +1,9 @@
+(()=>{const showLogin=()=>{const el=document.getElementById("login-section"); if(el) el.classList.remove("hidden");};
+function waitFirebase(){return new Promise(res=>{let t=0;const h=setInterval(()=>{if(window.firebase&&firebase.auth&&firebase.firestore){clearInterval(h);res(true)}else if(++t>240){clearInterval(h);res(false)}},25)})}
+(async()=>{const ok=await waitFirebase(); if(!ok){console.warn("[router-auth] Firebase not ready; showing login."); showLogin(); return;}
+const auth=firebase.auth(); const db=firebase.firestore();
+auth.onAuthStateChanged(async u=>{try{if(!u){showLogin();return;} const snap=await db.collection("users").doc(u.uid).get(); const role=(snap.exists&&snap.data().role)?snap.data().role:"driver"; if(role==="supervisor") location.href="/supervisor.html"; else if (location.pathname === "/login.html") // removed global redirect to /driver.html}catch(e){console.error("[router-auth]",e);showLogin();}});
+})();
+})();
+
+

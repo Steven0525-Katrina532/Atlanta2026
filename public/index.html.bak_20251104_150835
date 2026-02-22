@@ -1,0 +1,17 @@
+<!doctype html><html><head>
+<script>
+// SW safety: ensure no cached SW interferes with fresh deploys
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(regs => regs.forEach(r => r.unregister()));
+}
+</script><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body><script type='module'>
+ import { initFirebase } from "/firebase-config.js";
+ const app = await initFirebase();
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+const auth = getAuth(app);
+onAuthStateChanged(auth, (u)=>{ window.location.href = u ? "/driver" : "/login"; });
+</script></body></html>
+

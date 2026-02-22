@@ -1,0 +1,127 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Driver · ATL Driver Scheduler</title>
+<link rel="stylesheet" href="/styles/tokens.css">
+</head><body>
+<div style="background:#16a34a;color:#fff;padding:8px 12px;font-weight:700">
+  DEBUG DRIVER BUILD 2025-11-04 10:27:00 — if you can see this bar, the page deployed.
+</div>
+<header>
+  <strong>ATL Driver Scheduler</strong>
+  <div>
+    <span id="userEmail" class="muted"></span>
+    <button id="logoutBtn" class="btn secondary" style="margin-left:10px;">Log out</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div class="card" style="flex:1 1 720px;min-width:320px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <button id="prev" class="btn secondary">&#8592; Prev</button>
+        <div id="monthLabel" class="muted" style="min-width:220px;text-align:center;font-weight:700"></div>
+        <button id="next" class="btn secondary">Next &#8594;</button>
+        <div style="flex:1"></div>
+        <button id="reset" class="btn secondary">Reset Month</button>
+      </div>
+      <div id="cal" class="cal"></div>
+    </div>
+    <div class="card" style="flex:0 0 320px">
+      <h3 style="margin-top:0">Selected Dates</h3>
+      <ul id="chosen" class="muted" style="padding-left:18px"></ul>
+      <button id="submit" class="btn">Submit</button>
+      <div id="submitMsg" class="muted" style="margin-top:8px"></div>
+      <div id="roleSlot" style="margin-top:12px"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  console.log("[driver] script start");
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+  // ensure our config is the one used
+  try { if(getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+  const auth = getAuth(app);
+  await setPersistence(auth, browserLocalPersistence);
+
+  // logout
+  document.getElementById("logoutBtn").addEventListener("click", async ()=>{
+    try {
+      await signOut(auth);
+      // belt & suspenders: clear local/session storage in case old UI cached flags
+      try { localStorage.clear(); sessionStorage.clear(); } catch(_) {}
+    } finally {
+      window.location.href = "/login";
+    }
+  });
+
+  const emailEl   = document.getElementById('userEmail');
+  const cal       = document.getElementById('cal');
+  const monthLbl  = document.getElementById('monthLabel');
+  const chosen    = document.getElementById('chosen');
+  const submitBtn = document.getElementById('submit');
+  const submitMsg = document.getElementById('submitMsg');
+  const roleSlot  = document.getElementById('roleSlot');
+
+  let view = new Date(); view.setDate(1);
+  const DEFAULT_SLOTS = 11;
+  const selected = new Set();
+
+  function keyForMonth(d){ const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'); return \slots:\-\\; }
+  function loadMonth(d){ const raw=localStorage.getItem(keyForMonth(d)); return raw?JSON.parse(raw):{}; }
+  function saveMonth(d,map){ localStorage.setItem(keyForMonth(d), JSON.stringify(map)); }
+  function dim(d){ const y=d.getFullYear(),m=d.getMonth(); return new Date(y,m+1,0).getDate(); }
+  function fwd(d){ const t=new Date(d); t.setDate(1); return t.getDay(); }
+
+  function renderChosen(){
+    chosen.innerHTML="";
+    Array.from(selected).sort((a,b)=>a-b).forEach(d=>{
+      const li=document.createElement('li'); li.textContent=d; chosen.appendChild(li);
+    });
+  }
+
+  function render(){
+    console.log("[driver] render calendar");
+    const y=view.getFullYear(), m=view.getMonth();
+    monthLbl.textContent = view.toLocaleString(undefined,{month:'long',year:'numeric'});
+    const map = loadMonth(view);
+    const total=dim(view), pad=fwd(view);
+    cal.innerHTML="";
+    const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for(const w of weekdays){ const h=document.createElement('div'); h.className='muted'; h.style.fontWeight='700'; h.style.textAlign='center'; h.textContent=w; cal.appendChild(h); }
+    for(let i=0;i<pad;i++){ const b=document.createElement('div'); b.className='day'; b.style.visibility='hidden'; cal.appendChild(b); }
+    for(let d=1; d<=total; d++){
+      const cell=document.createElement('div'); cell.className='day';
+      const num=document.createElement('div'); num.style.fontWeight='700'; num.textContent=d;
+      const rem = map[d] ?? DEFAULT_SLOTS;
+      const badge=document.createElement('div'); badge.className='badge'+(rem===0?' zero':''); badge.textContent=rem;
+      if(selected.has(d)) cell.style.outline='3px solid #16a34a';
+      cell.addEventListener('click', ()=>{ if(selected.has(d)){selected.delete(d);cell.style.outline='';} else {selected.add(d);cell.style.outline='3px solid #16a34a';} renderChosen(); });
+      cell.appendChild(num); cell.appendChild(badge); cal.appendChild(cell);
+    }
+  }
+
+  document.getElementById('prev').addEventListener('click',()=>{ view.setMonth(view.getMonth()-1); selected.clear(); render(); renderChosen(); });
+  document.getElementById('next').addEventListener('click',()=>{ view.setMonth(view.getMonth()+1); selected.clear(); render(); renderChosen(); });
+  document.getElementById('reset').addEventListener('click',()=>{ localStorage.removeItem(keyForMonth(view)); render(); });
+
+  submitBtn.addEventListener('click',()=>{
+    const map=loadMonth(view);
+    for(const d of selected){ const cur=map[d] ?? DEFAULT_SLOTS; if(cur>0) map[d]=cur-1; }
+    saveMonth(view,map);
+    submitMsg.textContent = "Submitted ✓ (demo)";
+    selected.clear(); render(); renderChosen();
+  });
+
+  onAuthStateChanged(auth, async (user)=>{
+    console.log("[driver] auth state:", !!user);
+    if(!user){ window.location.href="/login"; return; }
+    emailEl.textContent = user.email || "";
+    // Show role button if mirrored claim exists later – skipped in debug
+    render(); renderChosen();
+  });
+</script>
+</body></html>

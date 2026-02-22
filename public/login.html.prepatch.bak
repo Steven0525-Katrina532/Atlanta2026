@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8' />
+  <meta name='viewport' content='width=device-width,initial-scale=1' />
+  <title>Login</title>
+  <script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+  <style>
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial; margin: 40px; }
+    .card { max-width: 420px; margin: 0 auto; border:1px solid #ddd; border-radius:12px; padding:20px; }
+    label { font-weight:600; display:block; margin:12px 0 6px; }
+    input, button { width:100%; padding:10px; border-radius:10px; border:1px solid #ccc; }
+    button { background:#fafafa; cursor:pointer; margin-top:12px; }
+    button:hover { background:#f0f0f0; }
+    .err { color:#a00; min-height:22px; margin-top:8px; }
+    .links { margin-top:10px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class='card'>
+    <h1>Sign in</h1>
+    <label for='email'>Email</label>
+    <input id='email' type='email' placeholder='you@example.com' autocomplete='username' />
+    <label for='pw'>Password</label>
+    <input id='pw' type='password' placeholder='••••••••' autocomplete='current-password' />
+    <button id='go'>Sign in</button>
+    <div id='err' class='err'></div>
+    <div class='links'>
+      <small><a href='/supervisor.html'>Supervisor console (requires sign-in)</a></small>
+    </div>
+  </div>
+
+  <script type='module'>
+    import { initFirebase } from '/firebase-config.js';
+    import {
+      getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+      setPersistence, browserLocalPersistence
+    } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+
+    const err = document.getElementById('err');
+    const email = document.getElementById('email');
+    const pw = document.getElementById('pw');
+
+    const app = await initFirebase();
+    const auth = getAuth(app);
+    await setPersistence(auth, browserLocalPersistence);
+
+    // If already signed in, go straight to Driver
+    onAuthStateChanged(auth, (user) => { if (user) location.replace('/driver.html'); });
+
+    document.getElementById('go').addEventListener('click', async () => {
+      err.textContent = '';
+      try {
+        await signInWithEmailAndPassword(auth, email.value.trim(), pw.value);
+        location.replace('/driver.html');
+      } catch (e) {
+        console.error(e);
+        err.textContent = e?.message ?? String(e);
+      }
+    });
+  </script>
+</body>
+</html>
+

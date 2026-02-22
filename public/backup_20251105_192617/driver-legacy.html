@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8' />
+  <title>Driver Console</title>
+  <meta name='viewport' content='width=device-width,initial-scale=1' />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 20px; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:16px; margin:12px 0; }
+    .muted { color:#666; }
+  </style>
+</head>
+<body>
+  <h1>Driver Console</h1>
+  <div id='status' class='card'>Loading…</div>
+  <div id='content' class='card' hidden>
+    <p><strong>User:</strong> <span id='userEmail' class='muted'>(none)</span></p>
+    <div id='assignments'></div>
+    <p class='muted'>This is a safe stub to prove auth + Firestore. We’ll replace with full UI next.</p>
+  </div>
+  <script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+  <script type='module'>
+    import { initFirebase } from "/firebase-config.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import { getFirestore, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    const statusEl = document.getElementById('status');
+    const contentEl = document.getElementById('content');
+    const userEmailEl = document.getElementById('userEmail');
+
+    try {
+      const app = await initFirebase();
+      const auth = getAuth(app);
+      const db   = getFirestore(app);
+
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          statusEl.textContent = "Not signed in. Redirecting to login…";
+          location.replace("/login.html");
+          return;
+        }
+        userEmailEl.textContent = user.email || "(unknown)";
+        statusEl.remove();
+        contentEl.hidden = false;
+
+        // Demo read: show active vehicles to prove Firestore works
+        const q = query(collection(db, "vehicles"), where("active","==", true));
+        const snap = await getDocs(q);
+        const list = snap.docs.map(d => {
+          const v = d.data();
+          return <li> — </li>;
+        }).join("");
+        document.getElementById("assignments").innerHTML =
+          "<h3>Active Vehicles ("+snap.size+")</h3><ul>"+list+"</ul>";
+      });
+
+      window.addEventListener('error', (e) => console.error("JS Error:", e.message));
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = "Error: " + (e && e.message ? e.message : e);
+    }
+  </script>
+</body>
+</html>

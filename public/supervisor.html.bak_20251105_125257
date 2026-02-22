@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Supervisor Console</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 20px; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:16px; margin:12px 0; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+    label { display:block; font-weight:600; margin-bottom:6px; }
+    input[type="date"], input[type="datetime-local"], input[type="time"] { padding:8px; border:1px solid #ccc; border-radius:8px; }
+    button { padding:10px 14px; border-radius:10px; border:1px solid #ccc; background:#fafafa; cursor:pointer; }
+    button:hover { background:#f0f0f0; }
+    .muted { color:#666; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Supervisor Console</h1>
+
+    <div id="status" class="card">Loading…</div>
+
+    <div id="content" class="hidden">
+      <div class="card">
+        <p class="muted">Authenticated as: <span id="who">(unknown)</span></p>
+      </div>
+
+      <div class="card">
+        <h3>Schedule</h3>
+        <div class="row">
+          <div>
+            <label for="scheduleDate">Service Date</label>
+            <input type="date" id="scheduleDate" />
+          </div>
+          <div>
+            <label for="openStart">Open Window (start)</label>
+            <input type="datetime-local" id="openStart" />
+          </div>
+          <div>
+            <label for="openEnd">Open Window (end)</label>
+            <input type="datetime-local" id="openEnd" />
+          </div>
+        </div>
+        <p class="muted" style="margin-top:10px">
+          Next: we’ll wire these to Firestore once the login flow is fully verified.
+        </p>
+        <div style="margin-top:12px">
+          <button id="save" disabled>Save (coming soon)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SW-unregister safety (no caching gremlins) -->
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+  }
+  </script>
+
+  <!-- Module: light auth gate; no Firestore writes yet -->
+  <script type="module">
+    import { initFirebase } from "/firebase-config.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+    const statusEl = document.getElementById("status");
+    const contentEl = document.getElementById("content");
+    const whoEl = document.getElementById("who");
+
+    try {
+      const app = await initFirebase();
+      const auth = getAuth(app);
+
+      onAuthStateChanged(auth, (user) => {
+        if (!user) {
+          statusEl.textContent = "Not signed in. Redirecting to login…";
+          location.replace("/login.html");
+          return;
+        }
+        whoEl.textContent = user.email || "(unknown)";
+        statusEl.remove();
+        contentEl.classList.remove("hidden");
+      });
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = "Error: " + (e && e.message ? e.message : e);
+    }
+  </script>
+</body>
+</html>

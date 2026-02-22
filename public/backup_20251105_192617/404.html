@@ -1,0 +1,19 @@
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+<!doctype html><meta charset="utf-8"><title>Not found</title>
+<h1>Not found</h1>
+<ul>
+  <li><a href="/login.html">/login.html</a></li>
+  <li><a href="/login">/login</a></li>
+  <li><a href="/driver.html">/driver.html</a></li>
+  <li><a href="/driver">/driver</a></li>
+  <li><a href="/whoami.html">/whoami.html</a></li>
+</ul>
+
+<script type='module'>
+  import { initFirebase } from "/firebase-config.js";
+  const app = await initFirebase();
+</script>

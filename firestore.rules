@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function authed()   { return request.auth != null; }
+    function isOwner(u) { return authed() && request.auth.uid == u; }
+    function isSup()    { return authed() && request.auth.token.role in ["admin","supervisor"]; }
+
+    // Driver page needs this read
+    match /settings/window {
+      allow read: if authed();
+      allow write: if false;
+    }
+
+    // Driver may read/write ONLY their own picks (doc id "{uid}_{ym}")
+    match /picks/{pickId} {
+      allow read, write: if isOwner(pickId.split('_')[0]);
+    }
+
+    // Supervisor console reads
+    match /drivers/{doc=**}     { allow read: if isSup(); }
+    match /supervisors/{doc=**} { allow read: if isSup(); }
+
+    // Everything else locked
+    match /{document=**} { allow read, write: if false; }
+  }
+}

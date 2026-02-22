@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><title>Auth Probe</title>
+<h1>Auth Probe</h1>
+<pre id="out">Running…</pre>
+<script type="module">
+const out = document.getElementById('out');
+const log=(...a)=>out.textContent+="\n"+a.join(" ");
+async function ping(url, init={}) {
+  const t0=performance.now();
+  try {
+    const r = await fetch(url, {method:'GET', mode:'cors', ...init});
+    log((r.ok?"OK":"HTTP "+r.status), Math.round(performance.now()-t0)+"ms", url);
+  } catch(e) { log("BLOCKED/ERR:", (e && e.message) || e, url); }
+}
+(async()=>{
+  // 1) Static auth library
+  await ping("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js");
+  // 2a) IdentityToolkit CORS preflight
+  await ping("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", {method:"OPTIONS"});
+  // 2b) IdentityToolkit GET (should 400 with 'MISSING_PASSWORD' = still proves reachability)
+  await ping("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw");
+  // 3) Secure Token preflight
+  await ping("https://securetoken.googleapis.com/v1/token?key=AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", {method:"OPTIONS"});
+  // 4) Your config file (same-origin)
+  await ping("/firebase-config.js?v="+Date.now());
+})();
+</script>

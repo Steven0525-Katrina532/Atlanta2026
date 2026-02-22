@@ -1,0 +1,13 @@
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+<!doctype html><meta charset="utf-8"><title>Driver</title>
+<meta http-equiv="refresh" content="0; url=/driver.html">
+<p>Redirecting to <a href="/driver.html">/driver.html</a>…</p>
+
+<script type='module'>
+  import { initFirebase } from "/firebase-config.js";
+  const app = await initFirebase();
+</script>

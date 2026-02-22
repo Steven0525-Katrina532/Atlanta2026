@@ -1,0 +1,79 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Supervisor HQ</title>
+<link rel="stylesheet" href="/styles/supervisor.css">
+<body>
+  <div class="header">
+    <h1>Supervisor HQ</h1>
+    <div class="header-actions">
+      <a id="btnBack" class="btn" href="/driver.html">Back to Driver</a>
+      <button id="btnLogout" class="btn" style="background:#b91c1c">Log out</button>
+    </div>
+  </div>
+
+  <!-- Hidden until auth check passes -->
+  <main id="app" hidden>
+    <div class="grid">
+      <section class="card">
+        <h2>Start Time</h2>
+        <div class="row">
+          <label class="note">Drivers may start picking at:</label>
+          <input id="openDate" class="input" type="date">
+          <input id="openTime" class="input" type="time" step="60">
+          <button class="btn" id="btnSetOpen" disabled>Set Start (stub)</button>
+        </div>
+        <p class="note">This is already your flow—wiring next. This box will also show the current open/close status.</p>
+      </section>
+
+      <section class="card">
+        <h2>Print Schedule</h2>
+        <div class="row">
+          <select id="printRange" class="select">
+            <option>Day</option><option>Week</option><option selected>Month</option>
+          </select>
+          <button class="btn" id="btnPrint" disabled>Print PDF (stub)</button>
+        </div>
+        <p class="note">Will include names + contact as you requested.</p>
+      </section>
+
+      <section class="card">
+        <h2>Calendar / List</h2>
+        <div class="row">
+          <button class="btn" id="viewCalendar">Calendar</button>
+          <button class="btn" id="viewList">List</button>
+          <span class="badge">Live counters</span>
+        </div>
+        <div id="viewArea" style="margin-top:12px" class="note">[stub] shows remaining spots per day, yellow after close if >0; shows assignments after close.</div>
+      </section>
+
+      <section class="card">
+        <h2>Proposals (late picks)</h2>
+        <table class="table" id="proposals">
+          <thead><tr><th>Driver</th><th>Date</th><th>Vehicle</th><th>Action</th></tr></thead>
+          <tbody><tr><td colspan="4" class="note">[stub] new late picks appear here; Approve will finalize.</td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Hire / Fire</h2>
+        <div class="row">
+          <input id="hfName" class="input" placeholder="Name">
+          <input id="hfEmail" class="input" placeholder="Email">
+          <button class="btn" id="btnAdd" disabled>Add (stub)</button>
+          <button class="btn" id="btnRemove" disabled>Remove (stub)</button>
+        </div>
+        <p class="note">Soft remove: hides future scheduling, keeps history.</p>
+      </section>
+
+      <section class="card" data-admin-only><h2>Admin Area</h2>
+        <p class="note">Only you (admin) will see extra controls here when we wire them.</p>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="/js/supervisor-guard.js"></script>
+  <script type="module" src="/js/supervisor-actions.js"></script>
+  <script type="module" src="/js/admin-tools.js"></script>
+</body>
+
+

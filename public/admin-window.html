@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Admin: Set Scheduling Window</title>
+  <style>
+    body { font: 14px system-ui; margin: 24px; }
+    button { padding: 10px 14px; font-weight: 600; }
+    .muted { color:#64748b }
+    .ok { color: #16a34a; font-weight:700 }
+    .err { color: #b91c1c; font-weight:700 }
+    .row { margin: 10px 0 }
+  </style>
+  <script>
+    // Kill any service worker caching old HTML
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+    }
+  </script>
+  <link rel='stylesheet' href='/styles/overrides.css'>
+</head>
+<body>
+  <h1>Admin: Set Scheduling Window</h1>
+  <p class="muted">Sign in with Google, then set <code>settings/window</code> so the Driver calendar unlocks.</p>
+
+  <div class="row">
+    <label>Open (minutes ago): <input id="mins" type="number" value="5" min="0" style="width:80px"></label>
+    <label style="margin-left:12px">Close (days ahead): <input id="days" type="number" value="7" min="1" style="width:80px"></label>
+  </div>
+  <div class="row">
+    <button id="go">Sign in with Google & Set Window</button>
+  </div>
+  <div id="out" class="row muted"></div>
+  <div class="row">
+    <a id="driverLink" href="/driver.html">Go to Driver</a>
+  </div>
+
+  <script type="module">
+    import { initFirebase } from "/firebase-config.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+   const app = initFirebase();
+   const auth = getAuth(app);
+   const db = getFirestore(app);
+
+    const out = document.getElementById('out');
+    const mins = document.getElementById('mins');
+    const days = document.getElementById('days');
+    const btn  = document.getElementById('go');
+
+    function log(html, cls="") {
+      out.innerHTML = `<span class="${cls}">${html}</span>`;
+    }
+
+    btn.addEventListener('click', async () => {
+      try {
+        log("Signing in with Google…");
+        await signInWithPopup(auth, new GoogleAuthProvider());
+        const u = auth.currentUser;
+        if (!u) { throw new Error("No user after sign-in."); }
+        log("Signed in as " + u.email);
+
+        const now = new Date();
+        const openAt  = new Date(now.getTime() - (parseInt(mins.value||"5") * 60000)).toISOString();
+        const closeAt = new Date(now.getTime() + (parseInt(days.value||"7") * 86400000)).toISOString();
+        const ym = new Date().toISOString().slice(0,7); // YYYY-MM
+
+        // Write ISO strings: your driver.html does new Date(isoString)
+        await setDoc(doc(db, "settings", "window"), {
+          openAt, closeAt, status: "open", ym
+        }, { merge: true });
+
+        log(`Window set ✓ openAt=${openAt} closeAt=${closeAt} ym=${ym}`, "ok");
+      } catch (e) {
+        console.error(e);
+        log("Failed: " + (e?.message||e), "err");
+      }
+    });
+  </script>
+</body>
+</html>
+

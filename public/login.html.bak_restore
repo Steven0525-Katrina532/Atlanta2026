@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/><title>Login</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>body{font-family:system-ui;margin:24px} .card{max-width:360px;padding:16px;border:1px solid #e5e7eb;border-radius:12px}</style>
+</head>
+<body>
+<div class="card">
+  <h3>ATL Scheduler – Login</h3>
+  <div><input id="email" placeholder="email" style="width:100%;padding:8px;margin:6px 0"/></div>
+  <div><input id="pass" type="password" placeholder="password" style="width:100%;padding:8px;margin:6px 0"/></div>
+  <div style="display:flex;gap:8px"><button id="login">Sign In</button><button id="logout">Sign Out</button></div>
+  <div id="msg" style="margin-top:8px;color:#6b7280"></div>
+</div>
+<script type="module">
+  import { initFirebase } from "/firebase-config.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  const app = await initFirebase(); const auth = getAuth(app);
+  const email = document.getElementById('email'), pass = document.getElementById('pass'), msg = document.getElementById('msg');
+  document.getElementById('login').onclick = async () => { try { await signInWithEmailAndPassword(auth, email.value.trim(), pass.value); } catch(e){ msg.textContent = e.message || "Login failed"; } };
+  document.getElementById('logout').onclick = async () => { await signOut(auth); msg.textContent = "Signed out."; };
+  onAuthStateChanged(auth, (u)=>{ if(u){ location.replace("/driver.html"); } else { msg.textContent = "Not signed in."; }});
+</script>
+</body>
+</html>

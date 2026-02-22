@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Seed Vehicles</title></head>
+<body>
+<h1>Seeding vehicles…</h1>
+<script type="module">
+import { initFirebase } from "/firebase-config.js";
+import { getFirestore, setDoc, doc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const app = await initFirebase();
+const db  = getFirestore(app);
+
+const subs = ["1601","1602","1603","1604","1605","1606"];
+const eqs  = ["1631","1632","1633","1634","1635"];
+const specials = ["1600","1621"];
+
+for (const id of subs)     await setDoc(doc(db,"vehicles",id), { id, name: "Suburban "+id, active:true, hidden:false });
+for (const id of eqs)      await setDoc(doc(db,"vehicles",id), { id, name: "Equinox "+id,  active:true, hidden:false });
+for (const id of specials) await setDoc(doc(db,"vehicles",id), { id, name: "Special "+id,  active:true, hidden:true });
+
+document.body.innerHTML = "<h1>Seeded vehicles ✓</h1><p>Leave this page for now; we can remove it after verification.</p>";
+</script>
+</body>
+</html>

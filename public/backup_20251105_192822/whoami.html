@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"/><title>Who Am I</title><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body>
+<h3>Auth Status</h3>
+<pre id="out">Loading…</pre>
+<script type="module">
+  import { initFirebase } from "/firebase-config.js";
+  import { getAuth, onAuthStateChanged, getIdTokenResult } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  const app = await initFirebase();
+  const auth = getAuth(app);
+  onAuthStateChanged(auth, async (u)=>{
+    if(!u){ out.textContent = "Not signed in."; return; }
+    const tok = await getIdTokenResult(u);
+    out.textContent = JSON.stringify({ email: u.email, claims: tok.claims }, null, 2);
+  });
+</script>
+</body>
+</html>

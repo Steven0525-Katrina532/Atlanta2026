@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Login</title>`r`n  <link rel="stylesheet" href="/styles/tokens.css">
+  
+  <link rel='stylesheet' href='/styles/overrides.css'>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+  /* NORA branding (compact banner) */
+  :root{
+    --nora-black:#0a0a0a;
+    --nora-teal:#1aa192;
+    --nora-white:#ffffff;
+  }
+  body{
+    margin:0;background:var(--nora-teal);
+    min-height:100vh;display:flex;flex-direction:column;
+    font-family:system-ui,Segoe UI,Roboto,Arial;
+  }
+  .nora-top{
+    position:sticky;top:0;left:0;right:0;
+    background:var(--nora-black);color:var(--nora-white);
+    height:64px;               /* match the old small box height */
+    display:flex;align-items:center;
+    padding:0 20px;z-index:100;
+  }
+  .nora-brand{
+    font-weight:800;letter-spacing:.08em;
+    font-size:42px;            /* large, but not touching edges */
+    line-height:1;             /* keep tight so it sits nicely */
+  }
+  .page{
+    flex:1;min-height:calc(100vh - 64px);
+    display:grid;place-items:start center;
+    padding:28px 16px;
+  }
+  .card{
+    background:#fff;border-radius:14px;
+    box-shadow:0 14px 36px rgba(0,0,0,.22);
+    width:min(420px,92vw);     /* a bit larger, still phone-friendly */
+    padding:24px;margin-top:12px; /* slightly higher under the compact bar */
+  }
+  h1{margin:0 0 12px 0;font-size:20px}
+  label{display:block;font-size:12px;margin-top:10px;color:#333}
+  input{width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;margin-top:6px}
+  button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:12px;background:#1f8a5b;color:#fff;font-weight:700;cursor:pointer}
+  button:hover{filter:brightness(1.05)}
+  .err{color:#7a0f0f;background:#fdecec;border-radius:10px;padding:10px;margin-top:10px;display:none}
+</style>
+  <style id="kill-skinny-topbar">
+/* Remove the very first block at the top (the skinny black strip) */
+body > *:first-child { display: none !important; }
+/* Ensure the centered NORA badge remains visible (undo earlier hide, if any) */
+#noraBadge, .nora-badge { display: flex !important; }
+</style>
+  <style id="login-header-tune">
+/* LOGIN-ONLY header tune */
+body > *:first-child{
+  display:flex !important;
+  align-items:center; justify-content:center;
+  background:#000 !important; color:#fff !important;
+  height:64px;               /* band height */
+  margin:0 !important; border-radius:0 !important;
+  box-shadow:0 2px 0 rgba(0,0,0,.12);
+}
+/* Make "NORA" a bit smaller than band height */
+body > *:first-child,
+body > *:first-child *{
+  font-weight:800 !important;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  font-size:44px !important; /* slightly smaller than 64px band */
+  line-height:1;             /* keeps it vertically balanced */
+}
+
+/* Remove the centered NORA badge above the sign-in card */
+#noraBadge, .nora-badge { display:none !important; }
+</style>
+</head>
+<body>
+  <div class='nora-top'><div class='nora-brand'>NORA</div></div>
+  <div class='page'>
+<div class='nora-top'><div class='nora-brand'>NORA</div></div>
+  <div class='page'>
+<div class="card">
+    <h1>Sign in</h1>
+    <label>Email</label>
+    <input id="email" type="email" autocomplete="username" />
+    <label>Password</label>
+    <input id="password" type="password" autocomplete="current-password" />
+    <button id="loginBtn" type="button">Sign in</button>
+    <div id="err" class="err"></div>
+  </div>
+
+  <script>
+    // Hard kill any old service worker that may be serving stale JS/HTML
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+    }
+  </script>
+
+  <script type="module" id="login-next-guard">
+    import { auth } from "/js/app-init.js";
+    import { onAuthStateChanged, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+    const email = document.getElementById("email");
+    const password = document.getElementById("password");
+    const btn = document.getElementById("loginBtn");
+    const err = document.getElementById("err");
+
+    function showError(msg) {
+      err.textContent = msg || "Sign-in failed";
+      err.style.display = "block";
+    }
+
+    btn.addEventListener("click", async () => {
+      err.style.display = "none";
+      try {
+        await signInWithEmailAndPassword(auth, String(email.value||""), String(password.value||""));
+        // Redirect handled by onAuthStateChanged below.
+      } catch(e) {
+        showError(e?.message || "Error");
+      }
+    });
+
+    // After sign-in, honor ?next=… else go to /driver.html
+    onAuthStateChanged(auth, (user) => {
+      if (!user) return;
+      const p = new URLSearchParams(location.search);
+      const next = p.get("next") || "/driver.html";
+      location.href = next;
+    });
+  </script>  </div>  </div>
+</body></html>
+
+
+
+
+
+
+

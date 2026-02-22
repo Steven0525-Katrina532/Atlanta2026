@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>LEGACY 29 (Nav-Blocked) — Nav-Blocked Harness</title>
+<link rel="stylesheet" href="/styles/tokens.css">
+</head>
+<body>
+  <div class="hdr" style="background:#ef4444">LEGACY 29 (Nav-Blocked) — 20251104_105959</div>
+  <div class="wrap">
+    <div class="box">
+      <strong>Path:</strong> <span id="path"></span>
+      <div id="authState" class="muted" style="margin-top:6px">Checking session…</div>
+    </div>
+    <div class="box"><h3>Mount Points</h3>
+      <div class="box"><h4>#app</h4><div id="app"></div></div>
+      <div class="box"><h4>#root</h4><div id="root"></div></div>
+      <div class="box"><h4>#mount</h4><div id="mount"></div></div>
+      <div class="box"><h4>#container</h4><div id="container"></div></div>
+      <div class="box"><h4>.app</h4><div class="app"></div></div>
+      <div class="box"><h4>.root</h4><div class="root"></div></div>
+    </div>
+    <div class="box"><h3>Intercepted Logs</h3><div id="log" class="log"></div></div>
+  </div>
+
+  <script type="module">
+    document.getElementById('path').textContent = location.pathname;
+    const logEl = document.getElementById('log');
+    const log = (...args)=>{ console.log(...args); logEl.textContent += args.join(" ") + "\\n"; };
+
+    // ---- Intercept navigation attempts ----
+    const _assign = window.location.assign.bind(window.location);
+    const _replace = window.location.replace.bind(window.location);
+    Object.defineProperty(window.location, 'href', {
+      set: (v)=>{ log('[nav] location.href =', v); }
+    });
+    window.location.assign = (v)=>{ log('[nav] location.assign(', v, ')'); };
+    window.location.replace = (v)=>{ log('[nav] location.replace(', v, ')'); };
+    const _push = history.pushState.bind(history);
+    const _rep  = history.replaceState.bind(history);
+    history.pushState = (s,t,u)=>{ log('[nav] history.pushState ->', u); };
+    history.replaceState = (s,t,u)=>{ log('[nav] history.replaceState ->', u); };
+
+    // ---- Log selector usage (best-effort) ----
+    const _gid = document.getElementById.bind(document);
+    document.getElementById = (id)=>{ log('[dom] getElementById', id); return _gid(id); };
+    const _qs = document.querySelector.bind(document);
+    document.querySelector = (sel)=>{ log('[dom] querySelector', sel); return _qs(sel); };
+
+    // ---- Auth gate: require existing session ----
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    const app = initializeApp({ apiKey:"AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw", authDomain:"atl-driver-scheduler-demo.firebaseapp.com", projectId:"atl-driver-scheduler-demo" });
+    const auth = getAuth(app);
+    const authState = document.getElementById('authState');
+
+    async function loadBundle(){
+      const s = document.createElement('script');
+      s.type = "module";
+      s.src  = "=20251104_105959";
+      document.body.appendChild(s);
+      log("[harness] appended legacy bundle:", s.src);
+    }
+
+    onAuthStateChanged(auth, async (u)=>{
+      if(u){ authState.textContent = "Signed in as " + (u.email || "(no email)");
+        await loadBundle();
+      } else {
+        authState.textContent = "No session — redirecting to /login";
+        window.location = "/login";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html><html lang='en'><head>
+<meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/>
+<title>Supervisor · ATL Driver Scheduler</title>
+<link rel='stylesheet' href='/styles/tokens.css'>
+<style>
+  .admin-only{display:none}
+  .form-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .input{width:260px;padding:8px;border:1px solid var(--border);border-radius:8px}
+  .pill{display:inline-block;background:#0ea5e9;color:#fff;border-radius:999px;padding:2px 8px;font-weight:700}
+</style>
+</head><body>
+<header>
+  <strong>Supervisor Console</strong>
+  <div>
+    <span id='user' class='muted'></span>
+    <span id='rolePill' class='pill' style='margin-left:8px'>role: …</span>
+    <button id='back' class='btn secondary' style='margin-left:10px;'>Back to Driver</button>
+    <button id='logout' class='btn secondary' style='margin-left:10px;'>Log out</button>
+  </div>
+</header>
+
+<div class='wrap'>
+
+  <!-- Normal supervisor content -->
+  <div class='card' id='supContent'>
+    <h3 style='margin-top:0'>Schedule Overview</h3>
+    <p class='muted'>Supervisor view placeholder. Next step: show remaining slots/day and who selected. (We can wire this fast.)</p>
+  </div>
+
+  <!-- Admin Panel (only visible if your Firestore role is 'admin') -->
+  <div class='card admin-only' id='adminPanel'>
+    <h3 style='margin-top:0'>Admin Panel · Manage Roles</h3>
+    <p class='muted'>Add or remove supervisors. This panel is visible only to admin.</p>
+    <div class='form-row' style='margin-top:8px'>
+      <input id='email' class='input' placeholder='user email (e.g., allen.shelley@noratrans.com)' />
+      <select id='role' class='input' style='width:180px'>
+        <option value='supervisor'>supervisor</option>
+        <option value='driver'>driver</option>
+      </select>
+      <button id='save' class='btn'>Save role</button>
+      <span id='msg' class='muted'></span>
+    </div>
+    <div style='margin-top:12px'>
+      <button id='seed' class='btn secondary'>Seed demo supervisors (Allen & Louise)</button>
+    </div>
+  </div>
+
+</div>
+
+<script type='module'>
+  import { initializeApp, getApps, getApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  // Firebase init (clean)
+  try { if (getApps().length) { await deleteApp(getApp()); } } catch(e) {}
+  const app = initializeApp({
+    apiKey: "AIzaSyA9zGySiV_LYI-Vs0acQn1jhKdst_jzCIw",
+    authDomain: "atl-driver-scheduler-demo.firebaseapp.com",
+    projectId: "atl-driver-scheduler-demo"
+  });
+  const auth = getAuth(app);
+  await setPersistence(auth, browserLocalPersistence);
+  const db = getFirestore(app);
+
+  // UI refs
+  const userEl    = document.getElementById('user');
+  const rolePill  = document.getElementById('rolePill');
+  const adminBox  = document.getElementById('adminPanel');
+  const backBtn   = document.getElementById('back');
+  const outBtn    = document.getElementById('logout');
+  const emailIn   = document.getElementById('email');
+  const roleSel   = document.getElementById('role');
+  const saveBtn   = document.getElementById('save');
+  const msg       = document.getElementById('msg');
+  const seedBtn   = document.getElementById('seed');
+
+  const lc = (s)=> (s||'').trim().toLowerCase();
+
+  async function getRole(emailLower){
+    const ref = doc(db, "roles", emailLower);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return "driver";
+    const r = lc(snap.data().role);
+    return (r==="admin"||r==="supervisor") ? r : "driver";
+  }
+
+  onAuthStateChanged(auth, async (user)=>{
+    if(!user){ location.href="/login"; return; }
+    const me = lc(user.email);
+    userEl.textContent = me;
+
+    // Read role from Firestore
+    let role = "driver";
+    try { role = await getRole(me); } catch(e){ console.warn("role lookup failed", e); }
+    rolePill.textContent = "role: " + role;
+
+    // Show Admin Panel only for admin
+    if (role === "admin") {
+      adminBox.style.display = "block";
+    } else {
+      adminBox.style.display = "none";
+    }
+  });
+
+  backBtn.onclick = ()=> location.href="/driver";
+  outBtn.onclick = async ()=>{ try{ await signOut(auth);}catch(e){}; location.href="/login"; };
+
+  saveBtn.onclick = async ()=>{
+    msg.textContent = "";
+    const e = lc(emailIn.value);
+    if (!e.includes("@")) { msg.textContent = "Enter a valid email"; return; }
+    const r = lc(roleSel.value);
+    await setDoc(doc(db,"roles",e), { role: r });
+    msg.textContent = "Saved ✓";
+  };
+
+  seedBtn.onclick = async ()=>{
+    await setDoc(doc(db,"roles","allen.shelley@noratrans.com"), { role:"supervisor" });
+    await setDoc(doc(db,"roles","louise.cook@noratrans.com"),   { role:"supervisor" });
+    await setDoc(doc(db,"roles","louise.cook@nortrans.com"),    { role:"supervisor" }); // alias safety
+    msg.textContent = "Seeded ✓";
+  };
+</script>
+</body></html>

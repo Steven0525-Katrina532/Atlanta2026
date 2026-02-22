@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8' />
+  <title>Supervisor Console</title>
+  <meta name='viewport' content='width=device-width,initial-scale=1' />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 20px; }
+    .grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); }
+    .card { border:1px solid #ddd; border-radius:12px; padding:16px; }
+    .muted { color:#666; }
+    button { padding:8px 12px; border-radius:10px; border:1px solid #ccc; background:#fafafa; cursor:pointer; }
+    button:hover { background:#f0f0f0; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+  </style>
+</head>
+<body>
+  <h1>Supervisor Console</h1>
+  <div id='status' class='card'>Loading…</div>
+  <div id='content' hidden>
+    <div class='grid'>
+      <div class='card'>
+        <h3>Overview</h3>
+        <p>Active vehicles: <strong id='vehCount'>0</strong></p>
+        <p>Drivers (est.): <strong id='drvCount'>0</strong></p>
+        <p class='muted'>Next step: add assignment editor and publish flow.</p>
+      </div>
+      <div class='card'>
+        <h3>Vehicles</h3>
+        <table id='vehTable'><thead><tr><th>ID</th><th>Name</th><th>Hidden</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+  <script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.().then(rs => rs.forEach(r => r.unregister()));
+}
+</script>
+  <script type='module'>
+    import { initFirebase } from "/firebase-config.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import { getFirestore, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+    const statusEl = document.getElementById('status');
+    const contentEl = document.getElementById('content');
+
+    try {
+      const app = await initFirebase();
+      const auth = getAuth(app);
+      const db   = getFirestore(app);
+
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) { location.replace("/login.html"); return; }
+
+        // Vehicles
+        const qv = query(collection(db, "vehicles"), where("active","==", true));
+        const sv = await getDocs(qv);
+        document.getElementById('vehCount').textContent = sv.size;
+
+        // (Placeholder) Drivers count estimate: reads 'drivers' collection if present
+        let drvCount = 0;
+        try {
+          const sd = await getDocs(collection(db, "drivers"));
+          drvCount = sd.size;
+        } catch (_) {}
+        document.getElementById('drvCount').textContent = drvCount;
+
+        // Render vehicles table
+        const tbody = document.querySelector("#vehTable tbody");
+        tbody.innerHTML = sv.docs.map(d => {
+          const v = d.data();
+          return <tr><td></td><td></td><td></td></tr>;
+        }).join("");
+
+        statusEl.remove();
+        contentEl.hidden = false;
+      });
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = "Error: " + (e && e.message ? e.message : e);
+    }
+  </script>
+</body>
+</html>

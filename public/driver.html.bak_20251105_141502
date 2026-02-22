@@ -1,0 +1,136 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/><title>Driver Console</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body{font-family:system-ui;margin:16px;background:#f7f9fb}
+    .bar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .card{background:#fff;border:1px solid #e6e9ef;border-radius:12px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .wrap{max-width:1100px;margin:0 auto}
+    .grid{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+    .day{background:#fff;border:1px solid #e2e8f0;border-radius:12px;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    .day.sel{outline:2px solid #16a34a}
+    .muted{color:#64748b}
+    button,input{padding:8px;border:1px solid #cbd5e1;border-radius:10px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #16a34a}
+    ul{margin:0;padding-left:18px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar card">
+    <div><strong>Driver Console</strong> • <span id="who" class="muted">(…)</span></div>
+    <div>
+      <a id="supLink" href="/supervisor.html" style="display:none"><button>Supervisor Console</button></a>
+      <a href="/login.html"><button>Login</button></a>
+    </div>
+  </div>
+
+  <div class="card" id="winBanner" style="margin-bottom:12px"></div>
+
+  <div class="grid">
+    <div class="card">
+      <div id="cal" class="calendar"></div>
+    </div>
+    <div class="card">
+      <div><strong>Selected Dates <span id="cnt" class="pill">0</span></strong></div>
+      <ul id="sel"></ul>
+      <button id="submitBtn">Submit</button>
+      <hr/>
+      <div><strong>My Requests</strong></div>
+      <ul id="mine"></ul>
+      <button id="recallBtn">Recall Selected</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initFirebase } from "/firebase-config.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getFirestore, doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js";
+
+  const app = await initFirebase();
+  const auth = getAuth(app); const db = getFirestore(app); const fns = getFunctions(app);
+
+  const who = document.getElementById('who'), cal = document.getElementById('cal'), sel = document.getElementById('sel'), cnt = document.getElementById('cnt');
+  const mine = document.getElementById('mine'), submitBtn = document.getElementById('submitBtn'), recallBtn = document.getElementById('recallBtn');
+  const banner = document.getElementById('winBanner'), supLink = document.getElementById('supLink');
+
+  let me=null, isSupervisor=false, ym=null, closeAt=null; const picked = new Set(); let myDates=new Set();
+
+  function ymd(d){ return d.toISOString().slice(0,10); }
+  function dd(d){ return d.toISOString().slice(8,10); }
+  function el(t,h){ const e=document.createElement(t); e.innerHTML=h; return e; }
+
+  onAuthStateChanged(auth, async (u)=>{
+    if(!u){ location.replace("/login.html"); return; }
+    me=u; who.textContent=u.email||"(unknown)";
+    // supervisor link if roles doc says supervisor
+    const r = await getDoc(doc(db,"roles", String(u.email||"")));
+    if (r.exists() && (r.data().roles?.supervisor || r.data().roles?.admin)) { isSupervisor=true; supLink.style.display="inline-block"; }
+    await loadWindow(); await renderCal(new Date()); await loadMine();
+  });
+
+  async function loadWindow(){
+    const s = await getDoc(doc(db,"settings","window"));
+    if (s.exists()){
+      const data = s.data(); ym = data.ym || new Date().toISOString().slice(0,7);
+      closeAt = data.closeAt?.toDate ? data.closeAt.toDate() : null;
+      banner.innerHTML = data.status==="OPEN"
+        ? `<strong>Open until:</strong> ${closeAt ? closeAt : "(no close set)"}`
+        : `<strong>Closed</strong>`;
+    } else { ym = new Date().toISOString().slice(0,7); banner.textContent="No window set."; }
+  }
+
+  async function renderCal(now){
+    cal.innerHTML="";
+    const first=new Date(now.getFullYear(), now.getMonth(), 1);
+    const start=new Date(first); start.setDate(1-((first.getDay()+6)%7));
+    for(let i=0;i<35;i++){
+      const d=new Date(start); d.setDate(start.getDate()+i);
+      const day=el("div", `<div>${d.getDate()}</div><div class='muted'>11</div>`);
+      day.className="day"; day.onclick=()=>togglePick(d, day); cal.appendChild(day);
+    }
+  }
+
+  function togglePick(d, cell){
+    const k = ymd(d);
+    if (picked.has(k)) { picked.delete(k); cell.classList.remove("sel"); }
+    else { picked.add(k); cell.classList.add("sel"); }
+    renderPicked();
+  }
+
+  function renderPicked(){
+    sel.innerHTML = ""; [...picked].sort().forEach(k => sel.appendChild(el("li", k)));
+    cnt.textContent = picked.size;
+  }
+
+  async function loadMine(){
+    // simple client-side filter of /applications for my uid
+    const qs = await getDocs(collection(db,"applications"));
+    myDates = new Set();
+    qs.forEach(x => { const a=x.data(); if (a.uid===me.uid) (a.dates||[]).forEach(d=>myDates.add(d)); });
+    mine.innerHTML = [...myDates].sort().map(d=>`<li>${d}</li>`).join("") || "<em>none</em>";
+  }
+
+  submitBtn.onclick = async ()=>{
+    if (!picked.size) { alert("Pick some dates first"); return; }
+    const apply = httpsCallable(fns, "applyForDate");
+    for (const date of picked) { await apply({ date }); }
+    picked.clear(); renderPicked(); await loadMine();
+    alert("Submitted.");
+  };
+
+  recallBtn.onclick = async ()=>{
+    const recall = httpsCallable(fns, "recallRequest");
+    // recall only dates the user already has
+    for (const date of [...picked].filter(d => myDates.has(d))) { await recall({ date }); }
+    picked.clear(); renderPicked(); await loadMine();
+    alert("Recalled where allowed.");
+  };
+</script>
+</body>
+</html>

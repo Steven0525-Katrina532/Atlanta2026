@@ -1,0 +1,13 @@
+﻿<!doctype html><html lang=""en""><head><meta charset=""utf-8""/><meta name=""viewport"" content=""width=device-width,initial-scale=1""><title>Supervisor</title></head>
+<body>
+<header style=""padding:12px 16px;background:#0b132b;color:#fff""><strong id=""topbar-title"">Supervisor Console</strong> <span id=""topbar-status"" style=""opacity:.8;margin-left:8px;"">Ready</span></header>
+<main style=""padding:16px"">
+  <div id=""calendar"">Calendar…</div>
+  <section id=""aiPanel"">AI suggestions…</section>
+  <section id=""approvalsQueue"">Approvals…</section>
+  <button id=""assignButton"">Assign/Override</button>
+</main>
+<script src=""/js/safe-dom-shim.js?v=638972560798636386""></script>
+<script src=""/js/topbar-fixes.js?v=638972560798636386""></script>
+<script src=""/js/supervisor.js?v=638972560798636386""></script>
+</body></html>

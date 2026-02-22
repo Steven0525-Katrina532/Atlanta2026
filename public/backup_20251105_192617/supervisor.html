@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Supervisor Console</title>
+  <link rel="stylesheet" href="/css/supervisor.css">
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; background:#0B3D2E; margin:0; color:#fff; }
+    .wrap { max-width:1100px; margin:24px auto; padding:16px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .card { background:#123b33; border-radius:16px; padding:16px; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+    .card h2 { margin:0 0 12px; font-size:18px; }
+    label { display:block; margin:8px 0 6px; font-weight:600; }
+    input, select, button { padding:10px 12px; border-radius:10px; border:1px solid #2a5; background:#0e2f27; color:#fff; }
+    button { cursor:pointer; background:#22a06b; border:0; }
+    table { width:100%; border-collapse: collapse; margin-top:10px; }
+    th, td { border-bottom:1px solid #265a4c; padding:8px; text-align:left; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .hint { opacity:.8; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap"><div id="notAllowed" style="display:none;margin:0 0 12px;padding:10px;border-radius:8px;background:#5a1d1d;">Signed in but not authorized for Supervisor. Please sign out and switch to a supervisor/admin account.</div>
+    <h1>Supervisor Console</h1>
+    <div class="grid">
+      <div class="card">
+        <h2>Window</h2>
+        <div class="row">
+          <button id="btnOpen">Open</button>
+          <button id="btnClose">Close</button>
+        </div>
+        <label for="closeAt">Close date & time</label>
+        <input id="closeAt" type="datetime-local"/>
+        <div class="hint">Set an explicit close timestamp (optional). Drivers after close become Late Requests.</div>
+      </div>
+
+      <div class="card">
+        <h2>Engine</h2>
+        <label for="monthStr">Month (YYYY-MM)</label>
+        <input id="monthStr" type="month"/>
+        <div class="row">
+          <button id="btnRun">Run Assignment Engine</button>
+        </div>
+        <div id="engineStatus" class="hint"></div>
+      </div>
+
+      <div class="card" style="grid-column:1 / -1;">
+        <h2>Late Requests</h2>
+        <div class="row">
+          <button id="btnReloadLate">Reload</button>
+        </div>
+        <table>
+          <thead><tr><th>Driver</th><th>Date</th><th>Reason</th><th>Action</th></tr></thead>
+          <tbody id="lateRows"><tr><td colspan="4" class="hint">No data yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <a href="/login.html?next=/supervisor.html" style="color:#9ff;">← Back to Login</a>
+    </div>
+  </div>
+
+  <script type="module">
+    import { auth, api } from "/js/app-init.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+    // Require signed-in supervisor (backend still enforces with custom claims)
+    onAuthStateChanged(auth, async (user) => {
+  if (!user) { location.href = "/login.html?next=/supervisor.html"; return; }
+  try {
+    const tok = await user.getIdTokenResult(true);
+    const role = tok.claims?.role;
+    if (!(role === "supervisor" || role === "admin")) {
+      const na = document.getElementById("notAllowed");
+      if (na) na.style.display = "block";
+    }
+  } catch (e) { console.error(e); }
+});
+    });
+
+    const byId = (id) => document.getElementById(id);
+    const closeAt = byId("closeAt");
+    const lateRows = byId("lateRows");
+    const engineStatus = byId("engineStatus");
+
+    async function refreshLate() {
+      lateRows.innerHTML = `<tr><td colspan="4" class="hint">Loading…</td></tr>`;
+      try {
+        const res = await api.listLate({});
+        const items = res.data?.items || [];
+        if (items.length === 0) {
+          lateRows.innerHTML = `<tr><td colspan="4" class="hint">No late requests.</td></tr>`;
+          return;
+        }
+        lateRows.innerHTML = "";
+        for (const r of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${r.driverName || r.uid}</td>
+            <td>${r.date}</td>
+            <td>${r.reason || ""}</td>
+            <td>
+              <button data-id="${r.id}" data-decision="approve">Approve</button>
+              <button data-id="${r.id}" data-decision="deny">Deny</button>
+            </td>`;
+          lateRows.appendChild(tr);
+        }
+      } catch (e) {
+        lateRows.innerHTML = `<tr><td colspan="4" class="hint">Failed to load late requests.</td></tr>`;
+        console.error(e);
+      }
+    }
+
+    document.addEventListener("click", async (ev) => {
+      const t = ev.target;
+      if (t.tagName === "BUTTON" && t.dataset && t.dataset.decision) {
+        const id = t.dataset.id;
+        const decision = t.dataset.decision;
+        t.disabled = true;
+        try {
+          await api.decideLate({ id, decision });
+          await refreshLate();
+        } catch (e) {
+          alert("Error: " + (e.message || e));
+          console.error(e);
+        } finally {
+          t.disabled = false;
+        }
+      }
+    });
+
+    byId("btnOpen").onclick = async () => {
+      try { await api.setWindow({ open: true }); alert("Window opened."); }
+      catch (e) { alert("Error: " + (e.message || e)); console.error(e); }
+    };
+    byId("btnClose").onclick = async () => {
+      try { await api.setWindow({ open: false }); alert("Window closed."); }
+      catch (e) { alert("Error: " + (e.message || e)); console.error(e); }
+    };
+    byId("btnReloadLate").onclick = refreshLate;
+
+    byId("btnRun").onclick = async () => {
+      engineStatus.textContent = "Running…";
+      try {
+        const month = byId("monthStr").value; // e.g., 2025-11
+        await api.runEngine({ month });
+        engineStatus.textContent = "Engine completed.";
+      } catch (e) {
+        engineStatus.textContent = "Engine failed.";
+        alert("Error: " + (e.message || e));
+        console.error(e);
+      }
+    };
+
+    // Initial load
+    refreshLate();
+  </script>
+  <script type="module">
+    import { auth, api } from "/js/app-init.js";
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+
+    const adminPanel = document.getElementById("adminTools");
+    const roleEmail  = document.getElementById("roleEmail");
+    const roleSelect = document.getElementById("roleSelect");
+    const btnSetRole = document.getElementById("btnSetRole");
+    const exportMonth= document.getElementById("exportMonth");
+    const btnExport  = document.getElementById("btnExportPdf");
+    const adminMsg   = document.getElementById("adminMsg");
+
+    onAuthStateChanged(auth, async (user) => {
+  if (!user) { location.href = "/login.html?next=/supervisor.html"; return; }
+  try {
+    const tok = await user.getIdTokenResult(true);
+    const role = tok.claims?.role;
+    if (!(role === "supervisor" || role === "admin")) {
+      const na = document.getElementById("notAllowed");
+      if (na) na.style.display = "block";
+    }
+  } catch (e) { console.error(e); }
+});
+      } catch (e) { console.error(e); }
+    });
+
+    btnSetRole?.addEventListener("click", async () => {
+      adminMsg.textContent = "Updating role…";
+      try {
+        const email = (roleEmail.value||"").trim();
+        const role  = (roleSelect.value||"").trim();
+        if (!email) { adminMsg.textContent = "Enter an email."; return; }
+        await api.setUserRole({ email, role });
+        adminMsg.textContent = "Role updated. The user must sign out/in to take effect.";
+      } catch (e) {
+        console.error(e);
+        adminMsg.textContent = "Failed to update role.";
+      }
+    });
+
+    btnExport?.addEventListener("click", async () => {
+      adminMsg.textContent = "Exporting…";
+      try {
+        const month = exportMonth.value;
+        const res = await api.exportMonthlyPdf({ month });
+        if (res.data?.url) {
+          adminMsg.innerHTML = `PDF ready: <a href="${res.data.url}" target="_blank">download</a>`;
+        } else {
+          adminMsg.textContent = "Export recorded (stub).";
+        }
+      } catch (e) {
+        console.error(e);
+        adminMsg.textContent = "Export failed.";
+      }
+    });
+  </script>
+</body>
+</html>
+
+
+
