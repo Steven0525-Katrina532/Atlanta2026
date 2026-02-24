@@ -1,0 +1,13 @@
+﻿# audit artifacts
+audit_artifacts/
+TRUTH_REPORT.pdf
+TRUTH_REPORT.md
+cc_layout_report.md
+
+# local experiments / legacy
+functions/src/v9/
+functions/lib/v9/
+
+# OS / tooling
+.DS_Store
+Thumbs.db
