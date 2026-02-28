@@ -25,3 +25,5 @@ functions/src_backup_*/
 .firebase/
 functions/node_modules/
 functions/src_backup_*/
+# Functions build output (we do NOT commit compiled JS)
+functions/lib/
