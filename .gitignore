@@ -11,3 +11,14 @@ functions/lib/v9/
 # OS / tooling
 .DS_Store
 Thumbs.db
+# Firebase local state
+.firebase/
+
+# Node deps
+functions/node_modules/
+
+# Build outputs
+functions/lib/
+
+# Backups
+functions/src_backup_*/
