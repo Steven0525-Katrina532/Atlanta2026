@@ -22,3 +22,6 @@ functions/lib/
 
 # Backups
 functions/src_backup_*/
+.firebase/
+functions/node_modules/
+functions/src_backup_*/
