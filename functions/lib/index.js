@@ -14,10 +14,5 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-/**
- * Cloud Functions entrypoint.
- * Important: do NOT call initializeApp() here. Admin init is centralized in ./admin.
- */
-__exportStar(require("./provision"), exports);
-__exportStar(require("./scheduler"), exports);
-__exportStar(require("./setUserRole"), exports);
+__exportStar(require("./v9/callables"), exports);
+__exportStar(require("./v9/scheduler"), exports);

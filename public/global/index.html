@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Global Admin</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="/styles/tokens.css" />
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial;margin:0}
+    header{padding:16px 20px;border-bottom:1px solid #e5e5e5;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    main{padding:20px;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+    .card{border:1px solid #e5e5e5;border-radius:12px;padding:16px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input,select,button{padding:10px 12px;border-radius:10px;border:1px solid #ccc}
+    button{cursor:pointer}
+    pre{background:#111;color:#eee;padding:12px;border-radius:10px;overflow:auto}
+    .ok{color:green;font-weight:700}
+    .bad{color:#b00020;font-weight:700}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div style="font-weight:800;font-size:18px;">Global Admin</div>
+      <div id="meta" style="opacity:.7;font-size:13px;">Loading…</div>
+    </div>
+    <div class="row">
+      <a href="/whoami.html">whoami</a>
+      <a href="/admin-roles.html">role admin</a>
+      <a href="/admin-window.html">window admin</a>
+      <a href="/supervisor/">base lead</a>
+      <a href="/driver/">ts</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h3>Reset Month</h3>
+      <div class="row">
+        <select id="resetMonth"></select>
+        <button id="btnReset">Reset Selected Month</button>
+      </div>
+      <p style="opacity:.7;margin:10px 0 0;">Clears applications, assignments, late queue, change log; resets month to OPEN; keeps closeAt.</p>
+    </section>
+
+    <section class="card">
+      <h3>Vehicles</h3>
+      <div class="row">
+        <input id="vehNum" type="number" placeholder="Vehicle #" />
+        <select id="vehType">
+          <option value="suburban">suburban</option>
+          <option value="equinox">equinox</option>
+          <option value="other">other</option>
+        </select>
+        <select id="vehActive">
+          <option value="true">active</option>
+          <option value="false">inactive</option>
+        </select>
+        <button id="btnVehUpsert">Add/Update</button>
+        <button id="btnVehDelete">Delete</button>
+      </div>
+      <pre id="vehOut">(loading)</pre>
+    </section>
+
+    <section class="card">
+      <h3>Role Changes</h3>
+      <div class="row">
+        <input id="roleUid" placeholder="User UID" style="min-width:280px;" />
+        <select id="roleVal">
+          <option value="ts">ts</option>
+          <option value="baseLead">baseLead</option>
+          <option value="opsManager">opsManager</option>
+          <option value="globalAdmin">globalAdmin</option>
+        </select>
+        <button id="btnSetRole">Set Role</button>
+      </div>
+      <p style="opacity:.7;margin:10px 0 0;">Uses callable function <code>setAnyUserRole</code> (spec backend).</p>
+    </section>
+
+    <section class="card">
+      <h3>Status</h3>
+      <div id="status" class="bad">Checking auth…</div>
+      <pre id="out">(waiting)</pre>
+    </section>
+  </main>
+
+  <script type="module">
+    import { watchClaims, ensureFirebase } from "/js/claims.js";
+    import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+    import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js";
+
+    const statusEl = document.getElementById("status");
+    const outEl = document.getElementById("out");
+    const metaEl = document.getElementById("meta");
+
+    const resetSel = document.getElementById("resetMonth");
+    const btnReset = document.getElementById("btnReset");
+
+    const vehNum = document.getElementById("vehNum");
+    const vehType = document.getElementById("vehType");
+    const vehActive = document.getElementById("vehActive");
+    const btnVehUpsert = document.getElementById("btnVehUpsert");
+    const btnVehDelete = document.getElementById("btnVehDelete");
+    const vehOut = document.getElementById("vehOut");
+
+    const roleUid = document.getElementById("roleUid");
+    const roleVal = document.getElementById("roleVal");
+    const btnSetRole = document.getElementById("btnSetRole");
+
+    function yyyymmList(countBack=24) {
+      const now = new Date();
+      const list = [];
+      for (let i=0;i<=countBack;i++){
+        const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+        const m = String(d.getMonth()+1).padStart(2,"0");
+        list.push(`${d.getFullYear()}-${m}`);
+      }
+      return list;
+    }
+
+    async function loadVehicles(db){
+      const snap = await getDocs(query(collection(db,"vehicles"), orderBy("vehicleNumber")));
+      const rows = snap.docs.map(d=>d.data());
+      vehOut.textContent = JSON.stringify(rows, null, 2);
+    }
+
+    async function initUI() {
+      yyyymmList(24).forEach(m=>{
+        const opt=document.createElement("option");
+        opt.value=m; opt.textContent=m;
+        resetSel.appendChild(opt);
+      });
+    }
+    initUI();
+
+    watchClaims(async (user, claims) => {
+      const role = claims.role || "ts";
+      metaEl.textContent = `${user.email} • role=${role}`;
+
+      if (role !== "globalAdmin") {
+        statusEl.className="bad";
+        statusEl.textContent="Access denied (not globalAdmin).";
+        outEl.textContent = JSON.stringify({claims}, null, 2);
+        return;
+      }
+
+      statusEl.className="ok";
+      statusEl.textContent="Signed in ✅ (globalAdmin)";
+      outEl.textContent = JSON.stringify({ uid:user.uid, email:user.email, claims }, null, 2);
+
+      const { auth } = await ensureFirebase();
+      const db = getFirestore();
+      const fn = getFunctions();
+
+      // Load vehicles
+      await loadVehicles(db);
+
+      btnVehUpsert.onclick = async () => {
+        const n = Number(vehNum.value);
+        if (!Number.isFinite(n)) return alert("Vehicle # required");
+        const upsert = httpsCallable(fn, "upsertVehicle");
+        await upsert({ vehicleNumber:n, type:vehType.value, active:(vehActive.value==="true") });
+        await loadVehicles(db);
+      };
+
+      btnVehDelete.onclick = async () => {
+        const n = String(vehNum.value || "").trim();
+        if (!n) return alert("Vehicle # required");
+        const del = httpsCallable(fn, "deleteVehicle");
+        await del({ vehicleNumber:n });
+        await loadVehicles(db);
+      };
+
+      btnReset.onclick = async () => {
+        const month = resetSel.value;
+        if (!confirm(`Reset month ${month}? This clears apps/assignments/lateQueue/changeLog for that month.`)) return;
+        const reset = httpsCallable(fn, "resetMonth");
+        await reset({ month });
+        alert("Reset complete.");
+      };
+
+      btnSetRole.onclick = async () => {
+        const uid = roleUid.value.trim();
+        if (!uid) return alert("UID required");
+        const setRole = httpsCallable(fn, "setAnyUserRole");
+        await setRole({ uid, role: roleVal.value });
+        alert("Role updated.");
+      };
+
+    }, () => {
+      statusEl.className="bad";
+      statusEl.innerHTML = `Not signed in. Go to <a href="/login/">/login/</a>.`;
+      outEl.textContent = "";
+    });
+  </script>
+</body>
+</html>

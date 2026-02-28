@@ -1,28 +1,45 @@
 <!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Who am I</title></head>
+<head>
+  <meta charset="utf-8" />
+  <title>Who Am I (Claims)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{font-family:system-ui,Segoe UI,Arial;max-width:900px;margin:24px auto;padding:0 16px}
+    pre{background:#111;color:#eee;padding:16px;border-radius:8px;overflow:auto}
+    .ok{color:green;font-weight:700}
+    .bad{color:#b00020;font-weight:700}
+    a{color:#1565c0}
+  </style>
+</head>
 <body>
   <h1>Auth token claims</h1>
-  <pre id="out">Loading…</pre>
+  <p id="status" class="bad">Loading…</p>
+  <pre id="out">(waiting)</pre>
 
   <script type="module">
-    import { initFirebase } from "/firebase-config.js";
-    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-    initFirebase();
-    const auth = getAuth();
-    const out = document.querySelector("#out");
+    import { watchClaims } from "/js/claims.js";
 
-    onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        out.textContent = "Not signed in. Go to /login.html first.";
-        return;
+    const statusEl = document.getElementById("status");
+    const outEl = document.getElementById("out");
+
+    watchClaims(
+      (user, claims) => {
+        statusEl.className = "ok";
+        statusEl.textContent = "Signed in ✅";
+        outEl.textContent = JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          roleClaim: claims.role ?? null,
+          claims,
+        }, null, 2);
+      },
+      () => {
+        statusEl.className = "bad";
+        statusEl.innerHTML = `Not signed in. Go to <a href="/login/">/login/</a> first.`;
+        outEl.textContent = "";
       }
-      const token = await user.getIdTokenResult(true);
-      out.textContent = JSON.stringify({
-        email: user.email,
-        claims: token.claims
-      }, null, 2);
-    });
+    );
   </script>
 </body>
 </html>
